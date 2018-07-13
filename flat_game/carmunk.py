@@ -13,11 +13,11 @@ from pymunk.pygame_util import draw
 width = 1000
 height = 700
 pygame.init()
-screen = pygame.display.set_mode((width, height))
+g_screen = pygame.display.set_mode((width, height))
 clock = pygame.time.Clock()
 
 # Turn off alpha since we don't use it.
-screen.set_alpha(None)
+g_screen.set_alpha(None)
 
 # Showing sensors and redrawing slows things down.
 show_sensors = True
@@ -70,6 +70,7 @@ class GameState:
 
         # Create a cat.
         self.create_cat()
+        # self.create_cat()  #  bbeckman
 
     def create_obstacle(self, x, y, r):
         c_body = pymunk.Body(pymunk.inf, pymunk.inf)
@@ -121,8 +122,8 @@ class GameState:
         self.car_body.velocity = 100 * driving_direction
 
         # Update the screen and stuff.
-        screen.fill(THECOLORS["black"])
-        draw(screen, self.space)
+        g_screen.fill(THECOLORS["black"])
+        draw(g_screen, self.space)
         self.space.step(1./10)
         if draw_screen:
             pygame.display.flip()
@@ -175,8 +176,8 @@ class GameState:
             self.crashed = False
             for i in range(10):
                 self.car_body.angle += .2  # Turn a little.
-                screen.fill(THECOLORS["red"])  # Red is scary!
-                draw(screen, self.space)
+                g_screen.fill(THECOLORS["red"])  # Red is scary!
+                draw(g_screen, self.space)
                 self.space.step(1./10)
                 if draw_screen:
                     pygame.display.flip()
@@ -232,12 +233,12 @@ class GameState:
                     or rotated_p[0] >= width or rotated_p[1] >= height:
                 return i  # Sensor is off the screen.
             else:
-                obs = screen.get_at(rotated_p)
+                obs = g_screen.get_at(rotated_p)
                 if self.get_track_or_not(obs) != 0:
                     return i
 
             if show_sensors:
-                pygame.draw.circle(screen, (255, 255, 255), (rotated_p), 2)
+                pygame.draw.circle(g_screen, (255, 255, 255), (rotated_p), 2)
 
         # Return the distance for the arm.
         return i
