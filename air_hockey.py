@@ -300,27 +300,32 @@ def random_velocity():
     return result
 
 
+def create_ball(x, y, r, m, color, e=1.0):
+    body = pymunk.Body(
+        mass=m,
+        moment=pymunk.moment_for_circle(
+            mass=m,
+            inner_radius=0,
+            outer_radius=r,
+            offset=(0, 0)))
+    body.position = x, y
+    body.velocity = random_velocity()
+    shape = pymunk.Circle(body=body, radius=r)
+    shape.color = color
+    shape.elasticity = e
+    return body, shape
+
+
 class GameState(object):
 
     def __init__(self):
         self.space = pymunk.Space()
         self.space.gravity = pymunk.Vec2d(0, 0)
 
-        # Make PyCharm squigglies go away.
-        self.car_body = None
-        self.cat_shape = None
-        self.car_shape = None
-        self.cat_body = None
-        self.obstacles = []
-
         self.create_walls()
-        self.create_obstacles()
-        self.create_cat()
-        self.create_car(100, 100, 0.5)
-
-    def create_obstacles(self):
-        self.obstacles.append(
-            self.create_obstacle(200, 350, DEMO_RADIUS))
+        self.create_obstacle(x=200, y=350, r=DEMO_RADIUS)
+        self.create_cat(x=700, y=HEIGHT - PADDING - 100, r=30)
+        self.create_car(x=100, y=100, r=25)
 
     def create_walls(self):
         walls = [
@@ -338,47 +343,21 @@ class GameState(object):
             s.color = THECOLORS['red']
         self.space.add(walls)
 
-    def create_obstacle(self, x, y, r):
-        # Infinite mass / inertia for obstacle:
-        c_body = pymunk.Body(pymunk.inf, pymunk.inf)
-        c_shape = pymunk.Circle(c_body, r)
-        c_shape.elasticity = 1.0
-        c_body.position = x, y
-        c_body.velocity = random_velocity()
-        c_shape.color = THECOLORS["blue"]
-        self.space.add(c_body, c_shape)
-        return c_body
+    def add_ball(self, x, y, r, m, c):
+        body, shape = create_ball(x, y, r, m, c)
+        self.space.add(body, shape)
 
-    def create_car(self, x, y, r):
-        inertia = pymunk.moment_for_circle(1, 0, 14, (0, 0))
+    def create_obstacle(self, x, y, r, m=100):
+        self.add_ball(x, y, r, m, THECOLORS['blue'])
 
-        self.car_body = pymunk.Body(1, inertia)
-        self.car_body.position = x, y
-        self.car_body.angle = r
+    def create_car(self, x, y, r, m=1):
+        self.add_ball(x, y, r, m, THECOLORS['green'])
 
-        self.car_shape = pymunk.Circle(self.car_body, 25)
-        self.car_shape.color = THECOLORS["green"]
-        self.car_shape.elasticity = 1.0
-
-        driving_direction = Vec2d(1, 0).rotated(self.car_body.angle)
-        self.car_body.apply_impulse(driving_direction)
-        self.space.add(self.car_body, self.car_shape)
-
-    def create_cat(self):
-        inertia = pymunk.moment_for_circle(1, 0, 14, (0, 0))
-
-        self.cat_body = pymunk.Body(1, inertia)
-        self.cat_body.position = 50, HEIGHT - 100
-        self.cat_body.velocity = random_velocity()
-
-        self.cat_shape = pymunk.Circle(self.cat_body, 30)
-        self.cat_shape.color = THECOLORS["orange"]
-        self.cat_shape.elasticity = 1.0
-
-        self.cat_shape.angle = 0.5
-        self.space.add(self.cat_body, self.cat_shape)
+    def create_cat(self, x, y, r, m=1):
+        self.add_ball(x, y, r, m, THECOLORS['orange'])
 
     def frame_step(self):
+        # TODO: no easy way to reset the angle marker after a collision.
         g_screen.fill(THECOLORS["black"])
         draw(g_screen, self.space)
         self.space.step(1./10)
