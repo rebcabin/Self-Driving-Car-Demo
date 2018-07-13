@@ -84,23 +84,28 @@ class Puck(object):
 
     def predict_a_wall_collision(self, wall: Wall, dt=1):
         p = self.center
-        q, t = colinear_point_and_parameter(wall.left, wall.right, p)
+        q, t = collinear_point_and_parameter(wall.left, wall.right, p)
         puck_drop_normal_direction = (q - p).normalized()
         puck_drop_point_on_circle = p + self.radius * puck_drop_normal_direction
-        q_prime, t_prime = colinear_point_and_parameter(
+        q_prime, t_prime = collinear_point_and_parameter(
             wall.left, wall.right, puck_drop_point_on_circle)
         # q_prime should be almost the same as q
         # TODO: np.testing.assert_allclose(), meanwhile, inspect in debugger.
         projected_speed = self.velocity.dot(puck_drop_normal_direction)
         distance_to_wall = (q_prime - p).length
-        predicted_time = dt * distance_to_wall / projected_speed
+        predicted_time = dt * distance_to_wall / projected_speed \
+            if projected_speed != 0 else pymunk.inf
         return predicted_time, q_prime, t_prime, wall
+
+    def predict_a_puck_collision(self, other: 'Puck', dt=1):
+        """See https://goo.gl/jQik91 for forward-references as strings."""
+        pass
 
     def find_nearest_wall_collision(self, walls):
         predictions = [self.predict_a_wall_collision(wall) for wall in walls]
         prediction = arg_min(
             predictions,
-            lambda p: p[0] if p[0] >= 0 else np.inf)
+            lambda p: p[0] if p[0] >= 0 else pymunk.inf)
         return prediction
 
 
@@ -177,7 +182,7 @@ def draw_points(int_tuples: List[Tuple[int, int]],
     pygame.display.flip()
 
 
-def colinear_point_and_parameter(u: Vec2d, v: Vec2d, p: Vec2d) -> \
+def collinear_point_and_parameter(u: Vec2d, v: Vec2d, p: Vec2d) -> \
         Tuple[Vec2d, float]:
     vmu_squared = (v - u).dot(v - u)
     t = (p - u).dot(v - u) / vmu_squared
@@ -185,15 +190,16 @@ def colinear_point_and_parameter(u: Vec2d, v: Vec2d, p: Vec2d) -> \
     return (q, t)
 
 
-def draw_colinear_point_and_param(u=Vec2d(10, HEIGHT - 10 - 1),
-                                  v=Vec2d(WIDTH - 10 - 1, HEIGHT - 10 - 1),
-                                  p=Vec2d(WIDTH / 2 + DEMO_STEPS - 1,
-                                          HEIGHT / 2 + (DEMO_STEPS - 1) / 2),
-                                  point_color=THECOLORS['white'],
-                                  line_color=THECOLORS['cyan']):
+def draw_collinear_point_and_param(
+        u=Vec2d(10, HEIGHT - 10 - 1),
+        v=Vec2d(WIDTH - 10 - 1, HEIGHT - 10 - 1),
+        p=Vec2d(WIDTH / 2 + DEMO_STEPS - 1,
+                HEIGHT / 2 + (DEMO_STEPS - 1) / 2),
+        point_color=THECOLORS['white'],
+        line_color=THECOLORS['cyan']):
     spot_radius = 9
     dont_fill_bit = 0
-    q, t = colinear_point_and_parameter(u, v, p)
+    q, t = collinear_point_and_parameter(u, v, p)
     pygame.draw.circle(g_screen, point_color, p.int_tuple, spot_radius,
                        dont_fill_bit)
     # pygame.draw.line(screen, point_color, q.int_tuple, q.int_tuple)
@@ -225,7 +231,7 @@ def main():
 
 
 def arg_min(things, criterion):
-    so_far = np.inf
+    so_far = pymunk.inf
     the_one = None
     for thing in things:
         c = criterion(thing)
@@ -237,30 +243,33 @@ def arg_min(things, criterion):
 
 def demo_cage(pause=1.5):
     clear_screen()
-    puck = Puck(center=Vec2d(WIDTH / 2, HEIGHT /2), velocity=Vec2d(1, 1/2))
+    puck = Puck(center=Vec2d(WIDTH / 2, HEIGHT /2),
+                velocity=random_velocity())
     puck.animate(DEMO_STEPS, DEMO_DT)
     draw_cage()
-    draw_perps_to_cage()
+    draw_perps_to_cage(puck)
     cage = screen_cage()
     walls = pairwise_toroidal(cage, Wall)
-    predictions = [puck.predict_a_wall_collision(wall) for wall in walls]
+    wall_collision_predictions = \
+        [puck.predict_a_wall_collision(wall) for wall in walls]
     # find smallest non-negative predicted collision
     prediction = arg_min(
-        predictions,
-        lambda p: p[0] if p[0] >= 0 else np.inf)
+        wall_collision_predictions,
+        lambda p: p[0] if p[0] >= 0 else pymunk.inf)
     # puck.animate(3 * DEMO_STEPS, DEMO_DT)
     time.sleep(pause)
 
 
-def draw_perps_to_cage():
+def draw_perps_to_cage(puck: Puck):
     top_left = Vec2d(TOP_LEFT)
     bottom_left = Vec2d(BOTTOM_LEFT)
     bottom_right = Vec2d(BOTTOM_RIGHT)
     top_right = Vec2d(TOP_RIGHT)
-    draw_colinear_point_and_param(bottom_left, bottom_right)
-    draw_colinear_point_and_param(top_left, top_right)
-    draw_colinear_point_and_param(top_left, bottom_left)
-    draw_colinear_point_and_param(top_right, bottom_right)
+    p = puck.center
+    draw_collinear_point_and_param(bottom_left, bottom_right, p)
+    draw_collinear_point_and_param(top_left, top_right, p)
+    draw_collinear_point_and_param(top_left, bottom_left, p)
+    draw_collinear_point_and_param(top_right, bottom_right, p)
 
 
 def demo_hull(pause=7.0):
@@ -270,7 +279,7 @@ def demo_hull(pause=7.0):
     hull = convex_hull(random_points(15))
     draw_points(hull)
     pairwise_toroidal(hull,
-             lambda p0, p1: draw_colinear_point_and_param(
+             lambda p0, p1: draw_collinear_point_and_param(
                  Vec2d(p0), Vec2d(p1), line_color=THECOLORS['purple']))
     time.sleep(pause)
 
@@ -284,6 +293,13 @@ def set_up_screen(pause=0.75):
     time.sleep(pause)
 
 
+def random_velocity():
+    speed = np.random.randint(1, 5)
+    direction = Vec2d(1, 0).rotated(np.random.randint(-2, 2))
+    result = speed * direction
+    return result
+
+
 class GameState(object):
 
     def __init__(self):
@@ -295,6 +311,7 @@ class GameState(object):
         self.cat_shape = None
         self.car_shape = None
         self.cat_body = None
+        self.obstacles = []
 
         self.create_walls()
         self.create_obstacles()
@@ -302,8 +319,8 @@ class GameState(object):
         self.create_car(100, 100, 0.5)
 
     def create_obstacles(self):
-        self.obstacles = []  # Start with singleton. Add more if interesting.
-        self.obstacles.append(self.create_obstacle(200, 350, 100))
+        self.obstacles.append(
+            self.create_obstacle(200, 350, DEMO_RADIUS))
 
     def create_walls(self):
         walls = [
@@ -327,33 +344,38 @@ class GameState(object):
         c_shape = pymunk.Circle(c_body, r)
         c_shape.elasticity = 1.0
         c_body.position = x, y
-        c_body.velocity = self.random_velocity()
+        c_body.velocity = random_velocity()
         c_shape.color = THECOLORS["blue"]
         self.space.add(c_body, c_shape)
         return c_body
 
     def create_car(self, x, y, r):
         inertia = pymunk.moment_for_circle(1, 0, 14, (0, 0))
+
         self.car_body = pymunk.Body(1, inertia)
         self.car_body.position = x, y
+        self.car_body.angle = r
+
         self.car_shape = pymunk.Circle(self.car_body, 25)
         self.car_shape.color = THECOLORS["green"]
         self.car_shape.elasticity = 1.0
-        self.car_body.angle = r
+
         driving_direction = Vec2d(1, 0).rotated(self.car_body.angle)
         self.car_body.apply_impulse(driving_direction)
         self.space.add(self.car_body, self.car_shape)
 
     def create_cat(self):
         inertia = pymunk.moment_for_circle(1, 0, 14, (0, 0))
+
         self.cat_body = pymunk.Body(1, inertia)
         self.cat_body.position = 50, HEIGHT - 100
-        self.cat_body.velocity = self.random_velocity()
+        self.cat_body.velocity = random_velocity()
+
         self.cat_shape = pymunk.Circle(self.cat_body, 30)
         self.cat_shape.color = THECOLORS["orange"]
         self.cat_shape.elasticity = 1.0
+
         self.cat_shape.angle = 0.5
-        # direction = Vec2d(1, 0).rotated(self.cat_body.angle)
         self.space.add(self.cat_body, self.cat_shape)
 
     def frame_step(self):
@@ -362,16 +384,9 @@ class GameState(object):
         self.space.step(1./10)
         pygame.display.flip()
 
-    @staticmethod
-    def random_velocity():
-        speed = np.random.randint(1, 5)
-        direction = Vec2d(1, 0).rotated(np.random.randint(-2, 2))
-        result = speed * direction
-        return result
-
 
 if __name__ == "__main__":
     main()
     game_state = GameState()
-    for _ in range(2500):
+    for _ in range(2000):
         game_state.frame_step()
