@@ -111,7 +111,7 @@ class Puck(object):
         # q_prime should be almost the same as q
         # TODO: np.testing.assert_allclose(), meanwhile, inspect in debugger.
         projected_speed = self.velocity.dot(puck_drop_normal_direction)
-        distance_to_wall = (q_prime - p).length
+        distance_to_wall = (q_prime - puck_drop_point_on_circle).length
         predicted_time = dt * distance_to_wall / projected_speed \
             if projected_speed != 0 else np.inf
         return {'tau': predicted_time,
@@ -417,7 +417,26 @@ def demo_cage(pause=0.75, dt=1):
         draw_vector(my_puck_prediction['my_strike_point'],
                     my_puck_prediction['their_strike_point'],
                     THECOLORS['gold1'])
+
+    # The following is just a sanity check; it should always be equal to and
+    # opposite from my_puck_prediction.
     their_puck_prediction = them.predict_a_puck_collision(me, dt)
+
+    nearest_wall_strike = arg_min([my_wall_prediction,
+                                   their_wall_prediction],
+                                  lambda p: p['tau'])
+    if my_puck_prediction['gonna_hit'] and \
+            my_puck_prediction['tau'] != - np.inf and \
+            my_puck_prediction['tau'] < nearest_wall_strike['tau']:
+        tau = my_puck_prediction['tau']
+    else:  # strike the wall
+        tau = nearest_wall_strike['tau']
+
+    me.step_many(int(tau), dt)
+    them.step_many(int(tau), dt)
+
+    me.draw()
+    them.draw()
 
     pygame.display.flip()
 
@@ -590,7 +609,7 @@ def main():
     global g_screen
     set_up_screen()
     # demo_hull(0.75)
-    demo_cage(pause=1.75)
+    demo_cage(pause=3.75)
     # demo_classic(steps=3000)
     # input('Press [Enter] to end the program.')
 
