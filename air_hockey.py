@@ -49,8 +49,8 @@ class Puck(object):
                  center,
                  velocity,
                  mass,
-                 radius=DEMO_RADIUS,
-                 color=THECOLORS['red'],
+                 radius,
+                 color,
                  dont_fill_bit=0):
 
         self._original_center = center
@@ -84,7 +84,7 @@ class Puck(object):
         for i in range(steps):
             self.step(dt)
 
-    def predict_a_wall_collision(self, wall: Wall, dt=1):
+    def predict_a_wall_collision(self, wall: Wall, dt):
         p = self.center
         q, t = collinear_point_and_parameter(wall.left, wall.right, p)
         puck_drop_normal_direction = (q - p).normalized()
@@ -110,7 +110,7 @@ class Puck(object):
         d = dp.length - self.radius - other.radius
         return dp, d
 
-    def predict_a_puck_collision(self, other: 'Puck', dt=1):
+    def predict_a_puck_collision(self, other: 'Puck', dt):
         """See https://goo.gl/jQik91 for forward-references as strings."""
         dp, d = self._get_relative_distance(other)
         # other's velocity in my inertial frame
@@ -267,26 +267,14 @@ def arg_min(things, criterion):
     return the_one
 
 
-def demo_cage(pause=0.75):
+def demo_cage(pause=0.75, dt=1):
     clear_screen()
 
-    me = Puck(center=Vec2d(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2),
-                velocity=random_velocity(),
-                mass=100,
-                radius=42)
-
-    them = Puck(center=Vec2d(SCREEN_WIDTH / 1.5, SCREEN_HEIGHT / 2.5),
-                velocity=random_velocity(),
-                mass=100,
-                radius=79,
-                color=THECOLORS['green'])
+    me, them = mk_us()
 
     clear_screen()
 
-    me.draw()
-    draw_arrow(loc=me.center, vel=me.velocity)
-    them.draw()
-    draw_arrow(loc=them.center, vel=them.velocity)
+    draw_us_with_arrows(me, them)
 
     me.step_many(DEMO_STEPS, DEMO_DT)
     them.step_many(DEMO_STEPS, DEMO_DT)
@@ -304,13 +292,37 @@ def demo_cage(pause=0.75):
     cage = screen_cage()
     walls = pairwise_toroidal(cage, Wall)
     wall_collision_predictions = \
-        [me.predict_a_wall_collision(wall) for wall in walls]
+        [me.predict_a_wall_collision(wall, dt) for wall in walls]
     # find smallest non-negative predicted collision
     wall_prediction = arg_min(
         wall_collision_predictions,
         lambda p: p[0] if p[0] >= 0 else np.inf)
 
+    my_prediction = me.predict_a_puck_collision(them, dt)
+    their_prediction = them.predict_a_puck_collision(me, dt)
+
     time.sleep(pause)
+
+
+def draw_us_with_arrows(me, them):
+    me.draw()
+    draw_arrow(loc=me.center, vel=me.velocity)
+    them.draw()
+    draw_arrow(loc=them.center, vel=them.velocity)
+
+
+def mk_us():
+    me = Puck(center=Vec2d(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2),
+              velocity=random_velocity(),
+              mass=100,
+              radius=42,
+              color=THECOLORS['red'])
+    them = Puck(center=Vec2d(SCREEN_WIDTH / 1.5, SCREEN_HEIGHT / 2.5),
+                velocity=random_velocity(),
+                mass=100,
+                radius=79,
+                color=THECOLORS['green'])
+    return me, them
 
 
 def rotate_seq(pt, c, s):
@@ -388,6 +400,24 @@ def draw_perps_to_cage(puck: Puck):
     draw_collinear_point_and_param(top_right, bottom_right, p)
 
 
+def set_up_screen(pause=0.75):
+    global g_screen
+    pygame.init()
+    g_screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+    # clock = pygame.time.Clock()
+    g_screen.set_alpha(None)
+    time.sleep(pause)
+
+
+def random_velocity():
+    # speed = np.random.randint(1, 5)
+    speed = 1 + 4 * np.random.rand()
+    # direction = Vec2d(1, 0).rotated(np.random.randint(-2, 2))
+    direction = Vec2d(1, 0).rotated(4 * np.random.rand() - 2)
+    result = speed * direction
+    return result
+
+
 def demo_hull(pause=7.0):
     clear_screen()
     puck = Puck(
@@ -401,22 +431,6 @@ def demo_hull(pause=7.0):
              lambda p0, p1: draw_collinear_point_and_param(
                  Vec2d(p0), Vec2d(p1), line_color=THECOLORS['purple']))
     time.sleep(pause)
-
-
-def set_up_screen(pause=0.75):
-    global g_screen
-    pygame.init()
-    g_screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
-    # clock = pygame.time.Clock()
-    g_screen.set_alpha(None)
-    time.sleep(pause)
-
-
-def random_velocity():
-    speed = np.random.randint(1, 5)
-    direction = Vec2d(1, 0).rotated(np.random.randint(-2, 2))
-    result = speed * direction
-    return result
 
 
 def create_ball(x, y, r, m, color, e=1.0):
