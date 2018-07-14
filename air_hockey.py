@@ -10,6 +10,14 @@ import numpy as np
 import numpy.random as rndm
 from typing import List, Tuple, Callable
 
+import pprint
+pp = pprint.PrettyPrinter(indent=2)
+
+#   ___             _            _
+#  / __|___ _ _  __| |_ __ _ _ _| |_ ___
+# | (__/ _ \ ' \(_-<  _/ _` | ' \  _(_-<
+#  \___\___/_||_/__/\__\__,_|_||_\__/__/
+
 
 SCREEN_WIDTH = 1000
 SCREEN_HEIGHT = 700
@@ -18,15 +26,18 @@ DEMO_DT = 1.00
 DEMO_RADIUS = 100
 PADDING = 10
 
+SPOT_RADIUS = 9
+
 TOP_LEFT = (PADDING, PADDING)
 BOTTOM_LEFT = (PADDING, SCREEN_HEIGHT - PADDING - 1)
 BOTTOM_RIGHT = (SCREEN_WIDTH - PADDING - 1, SCREEN_HEIGHT - PADDING - 1)
 TOP_RIGHT = Vec2d(SCREEN_WIDTH - PADDING - 1, PADDING)
 
 
-def clear_screen(color=THECOLORS['black']):
-    g_screen.fill(color)
-    pygame.display.flip()
+# __      __    _ _
+# \ \    / /_ _| | |
+#  \ \/\/ / _` | | |
+#   \_/\_/\__,_|_|_|
 
 
 class Wall(object):
@@ -41,6 +52,12 @@ class Wall(object):
 
     def draw(self):
         pass
+
+
+#  ___         _
+# | _ \_  _ __| |__
+# |  _/ || / _| / /
+# |_|  \_,_\__|_\_\
 
 
 class Puck(object):
@@ -97,7 +114,11 @@ class Puck(object):
         distance_to_wall = (q_prime - p).length
         predicted_time = dt * distance_to_wall / projected_speed \
             if projected_speed != 0 else np.inf
-        return predicted_time, q_prime, t_prime, wall
+        return {'tau': predicted_time,
+                'puck_strike_point': puck_drop_point_on_circle,
+                'wall_strike_point': q_prime,
+                'parameter': t_prime,
+                'wall': wall}
 
     def overlapping_disaster(self, other: 'Puck', dt=1):
         _, d = self._get_relative_distance(other)
@@ -118,13 +139,15 @@ class Puck(object):
         # normal component of other's velocity in my inertial frame
         n = dp.normalized()
         dv_n = dv.dot(n)
+        gonna_hit = False
         if d < 0:
             # they're overlapped NOW! Too late!
             tau_impact = -np.inf
         else:
             if dv_n < 0:
                 # other is heading toward me
-                tau_impact = dt * d / dv_n
+                tau_impact = - dt * d / dv_n
+                gonna_hit = True
             elif dv_n == 0:
                 # other is going exactly parallel to me
                 tau_impact = np.inf
@@ -132,41 +155,53 @@ class Puck(object):
             else:
                 # other is heading away from me
                 tau_impact = np.inf
-        return tau_impact, other, dp, n, dv, dv_n
+        return {'tau': tau_impact,
+                'victim': other,
+                'relative_position': dp,
+                'gonna_hit': gonna_hit,
+                'my_strike_point': self.center + self.radius * n \
+                    if gonna_hit else (0, 0),
+                'their_strike_point': self.center + dp - other.radius * n \
+                    if gonna_hit else (0, 0),
+                'distance': d,
+                'normal': n,
+                'relative_velocity': dv,
+                'velocity_projection': dv_n}
 
-    def find_nearest_wall_collision(self, walls):
-        predictions = [self.predict_a_wall_collision(wall) for wall in walls]
-        prediction = arg_min(
-            predictions,
-            lambda p: p[0] if p[0] >= 0 else np.inf)
-        return prediction
 
-
-# Function to return a parametric function that produces all the points along
-# a line:
+#   ___                   _              ___     _       _ _   _
+#  / __|___ ___ _ __  ___| |_ _ _ _  _  | _ \_ _(_)_ __ (_) |_(_)_ _____ ___
+# | (_ / -_) _ \ '  \/ -_)  _| '_| || | |  _/ '_| | '  \| |  _| \ V / -_|_-<
+#  \___\___\___/_|_|_\___|\__|_|  \_, | |_| |_| |_|_|_|_|_|\__|_|\_/\___/__/
+#                                 |__/
 
 
 def parametric_line(p0: Vec2d, p1: Vec2d) -> Callable:
+    """Returns a parametric function that produces all the points along an oriented
+    line segment from point p0 to point p1 as the parameter varies from 0 to 1.
+    Parameter values outside [0, 1] produce points along the infinite
+    continuation of the line segment."""
     d = (p1 - p0).get_length()
     return lambda t: p0 + t * (p1 - p0) / d
 
 
 def random_points(n):
-    return [Vec2d(p[0] * SCREEN_WIDTH, p[1] * SCREEN_HEIGHT) for p in rndm.random((n, 2))]
-
-
-# https://goo.gl/PR24H2
-# https://goo.gl/x3dEM6
+    """Produces randomly chosen points inside the screen (TODO: possibly
+    off-by-one on the right and the bottom)"""
+    return [Vec2d(p[0] * SCREEN_WIDTH, p[1] * SCREEN_HEIGHT)
+            for p in rndm.random((n, 2))]
 
 
 def convex_hull(points: List[Vec2d]) -> List[Tuple[int, int]]:
     """Computes the convex hull of a set of 2D points.
 
-    Input: an iterable sequence of Vec2ds(x, y) representing the points.
-    Output: a list of integer vertices of the convex hull in counter-clockwise
-    order, starting from the vertex with the lexicographically smallest
-    coordinates. Implements Andrew's monotone chain algorithm.
-    O(n log n) complexity in time."""
+    Input: an iterable sequence of Vec2d(x, y) representing the points. Output:
+    a list of integer vertices of the convex hull in counter-clockwise order,
+    starting from the vertex with the lexicographically smallest coordinates.
+    Implements Andrew's monotone chain algorithm. O(n log n) complexity in
+    time.
+
+    See https://goo.gl/PR24H2 and https://goo.gl/x3dEM6"""
 
     # Sort the points lexicographically (tuples are compared lexicographically).
     # Remove duplicates to detect the case we have just one unique point.
@@ -202,127 +237,12 @@ def convex_hull(points: List[Vec2d]) -> List[Tuple[int, int]]:
     return lower[:-1] + upper[:-1]
 
 
-def screen_cage(pad=10):
-    return [Vec2d(pad, pad),
-            Vec2d(pad, SCREEN_HEIGHT - pad - 1),
-            Vec2d(SCREEN_WIDTH - pad - 1, SCREEN_HEIGHT - pad - 1),
-            Vec2d(SCREEN_WIDTH - pad - 1, pad)]
-
-
-def draw_points(int_tuples: List[Tuple[int, int]],
-                color=THECOLORS['yellow']):
-    pygame.draw.polygon(g_screen, color, int_tuples, 1)
-    pygame.display.flip()
-
-
 def collinear_point_and_parameter(u: Vec2d, v: Vec2d, p: Vec2d) -> \
         Tuple[Vec2d, float]:
     vmu_squared = (v - u).dot(v - u)
     t = (p - u).dot(v - u) / vmu_squared
     q = u + t * (v - u)
     return (q, t)
-
-
-def draw_collinear_point_and_param(
-        u=Vec2d(10, SCREEN_HEIGHT - 10 - 1),
-        v=Vec2d(SCREEN_WIDTH - 10 - 1, SCREEN_HEIGHT - 10 - 1),
-        p=Vec2d(SCREEN_WIDTH / 2 + DEMO_STEPS - 1,
-                SCREEN_HEIGHT / 2 + (DEMO_STEPS - 1) / 2),
-        point_color=THECOLORS['white'],
-        line_color=THECOLORS['cyan']):
-    spot_radius = 9
-    dont_fill_bit = 0
-    q, t = collinear_point_and_parameter(u, v, p)
-    pygame.draw.circle(g_screen, point_color, p.int_tuple, spot_radius,
-                       dont_fill_bit)
-    # pygame.draw.line(screen, point_color, q.int_tuple, q.int_tuple)
-    pygame.draw.line(g_screen, line_color, p.int_tuple, q.int_tuple)
-    pygame.display.flip()
-
-
-def pairwise(ls, fn):
-    result = []
-    for i in range(len(ls) - 1):
-        temp = fn(ls[i], ls[i + 1])
-        result.append(temp)
-    return result
-
-
-def pairwise_toroidal(ls, fn):
-    return pairwise(ls + [ls[0]], fn)
-
-
-def draw_cage():
-    draw_points([p.int_tuple for p in screen_cage()], THECOLORS['green'])
-
-
-def arg_min(things, criterion):
-    so_far = np.inf
-    the_one = None
-    for thing in things:
-        c = criterion(thing)
-        if c < so_far:
-            the_one = thing
-            so_far = c
-    return the_one
-
-
-def demo_cage(pause=0.75, dt=1):
-    clear_screen()
-
-    me, them = mk_us()
-
-    clear_screen()
-
-    draw_us_with_arrows(me, them)
-
-    me.step_many(DEMO_STEPS, DEMO_DT)
-    them.step_many(DEMO_STEPS, DEMO_DT)
-
-    me.draw()
-    them.draw()
-
-    pygame.display.flip()
-
-    draw_cage()
-
-    draw_perps_to_cage(me)
-    draw_perps_to_cage(them)
-
-    cage = screen_cage()
-    walls = pairwise_toroidal(cage, Wall)
-    wall_collision_predictions = \
-        [me.predict_a_wall_collision(wall, dt) for wall in walls]
-    # find smallest non-negative predicted collision
-    wall_prediction = arg_min(
-        wall_collision_predictions,
-        lambda p: p[0] if p[0] >= 0 else np.inf)
-
-    my_prediction = me.predict_a_puck_collision(them, dt)
-    their_prediction = them.predict_a_puck_collision(me, dt)
-
-    time.sleep(pause)
-
-
-def draw_us_with_arrows(me, them):
-    me.draw()
-    draw_arrow(loc=me.center, vel=me.velocity)
-    them.draw()
-    draw_arrow(loc=them.center, vel=them.velocity)
-
-
-def mk_us():
-    me = Puck(center=Vec2d(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2),
-              velocity=random_velocity(),
-              mass=100,
-              radius=42,
-              color=THECOLORS['red'])
-    them = Puck(center=Vec2d(SCREEN_WIDTH / 1.5, SCREEN_HEIGHT / 2.5),
-                velocity=random_velocity(),
-                mass=100,
-                radius=79,
-                color=THECOLORS['green'])
-    return me, them
 
 
 def rotate_seq(pt, c, s):
@@ -350,7 +270,68 @@ def centroid_seq(pts):
             sum(pt[1] for pt in pts) / l)
 
 
-def draw_arrow(loc, vel):
+#  ___             _   _               _   ___     _       _ _   _
+# | __|  _ _ _  __| |_(_)___ _ _  __ _| | | _ \_ _(_)_ __ (_) |_(_)_ _____ ___
+# | _| || | ' \/ _|  _| / _ \ ' \/ _` | | |  _/ '_| | '  \| |  _| \ V / -_|_-<
+# |_| \_,_|_||_\__|\__|_\___/_||_\__,_|_| |_| |_| |_|_|_|_|_|\__|_|\_/\___/__/
+
+
+def pairwise(ls, fn):
+    result = []
+    for i in range(len(ls) - 1):
+        temp = fn(ls[i], ls[i + 1])
+        result.append(temp)
+    return result
+
+
+def pairwise_toroidal(ls, fn):
+    return pairwise(ls + [ls[0]], fn)
+
+
+def arg_min(things, criterion):
+    so_far = np.inf
+    the_one = None
+    for thing in things:
+        c = criterion(thing)
+        if c < so_far:
+            the_one = thing
+            so_far = c
+    return the_one
+
+
+#  ___             _         _
+# | _ \___ _ _  __| |___ _ _(_)_ _  __ _
+# |   / -_) ' \/ _` / -_) '_| | ' \/ _` |
+# |_|_\___|_||_\__,_\___|_| |_|_||_\__, |
+#                                  |___/
+
+
+def draw_int_tuples(int_tuples: List[Tuple[int, int]],
+                color=THECOLORS['yellow']):
+    pygame.draw.polygon(g_screen, color, int_tuples, 1)
+
+
+def draw_collinear_point_and_param(
+        u=Vec2d(10, SCREEN_HEIGHT - 10 - 1),
+        v=Vec2d(SCREEN_WIDTH - 10 - 1, SCREEN_HEIGHT - 10 - 1),
+        p=Vec2d(SCREEN_WIDTH / 2 + DEMO_STEPS - 1,
+                SCREEN_HEIGHT / 2 + (DEMO_STEPS - 1) / 2),
+        point_color=THECOLORS['white'],
+        line_color=THECOLORS['cyan']):
+    dont_fill_bit = 0
+    q, t = collinear_point_and_parameter(u, v, p)
+    pygame.draw.circle(g_screen, point_color, p.int_tuple, SPOT_RADIUS,
+                       dont_fill_bit)
+    # pygame.draw.line(screen, point_color, q.int_tuple, q.int_tuple)
+    pygame.draw.line(g_screen, line_color, p.int_tuple, q.int_tuple)
+
+
+def draw_vector(p0: Vec2d, p1: Vec2d, color):
+    pygame.draw.line(g_screen, color, p0.int_tuple, p1.int_tuple)
+    pygame.draw.circle(g_screen, color, p1.int_tuple, SPOT_RADIUS, 0)
+
+
+def draw_centered_arrow(loc, vel):
     arrow_surface = g_screen.copy()
     arrow_surface.set_alpha(175)
 
@@ -378,7 +359,7 @@ def draw_arrow(loc, vel):
 
     pygame.draw.polygon(
         arrow_surface,
-        THECOLORS['aliceblue'],  # (0, 0, 0),
+        THECOLORS['white'],  # (0, 0, 0),
         ps,
         0)
 
@@ -386,6 +367,96 @@ def draw_arrow(loc, vel):
     g_screen.blit(
         source=arrow_surface,
         dest=((0, 0)))  # ((loc - Vec2d(0, 150)).int_tuple))
+
+
+def screen_cage(pad=10):
+    return [Vec2d(pad, pad),
+            Vec2d(pad, SCREEN_HEIGHT - pad - 1),
+            Vec2d(SCREEN_WIDTH - pad - 1, SCREEN_HEIGHT - pad - 1),
+            Vec2d(SCREEN_WIDTH - pad - 1, pad)]
+
+
+def draw_cage():
+    draw_int_tuples([p.int_tuple for p in screen_cage()], THECOLORS['green'])
+
+
+def clear_screen(color=THECOLORS['black']):
+    g_screen.fill(color)
+
+
+#  ___
+# |   \ ___ _ __  ___ ___
+# | |) / -_) '  \/ _ (_-<
+# |___/\___|_|_|_\___/__/
+
+
+def demo_cage(pause=0.75, dt=1):
+    me, them = mk_us()
+    draw_us_with_arrows(me, them)
+
+    draw_cage()
+
+    # draw_perps_to_cage(me)
+    # draw_perps_to_cage(them)
+
+    cage = screen_cage()
+    walls = pairwise_toroidal(cage, Wall)
+
+    my_wall_prediction = wall_prediction(me, walls, dt)
+    draw_vector(my_wall_prediction['puck_strike_point'],
+                my_wall_prediction['wall_strike_point'],
+                THECOLORS['purple1'])
+
+    their_wall_prediction = wall_prediction(them, walls, dt)
+    draw_vector(their_wall_prediction['puck_strike_point'],
+                their_wall_prediction['wall_strike_point'],
+                THECOLORS['purple1'])
+
+    my_puck_prediction = me.predict_a_puck_collision(them, dt)
+    if my_puck_prediction['gonna_hit']:
+        draw_vector(my_puck_prediction['my_strike_point'],
+                    my_puck_prediction['their_strike_point'],
+                    THECOLORS['gold1'])
+    their_puck_prediction = them.predict_a_puck_collision(me, dt)
+
+    pygame.display.flip()
+
+    pp.pprint({'my_wall_prediction': my_wall_prediction,
+               'their_wall_prediction': their_wall_prediction,
+               'my_puck_prediction': my_puck_prediction,
+               'their_puck_prediction': their_puck_prediction})
+
+    time.sleep(pause)
+
+
+def wall_prediction(puck, walls, dt):
+    predictions = \
+        [puck.predict_a_wall_collision(wall, dt) for wall in walls]
+    prediction = arg_min(
+        predictions,
+        lambda p: p['tau'] if p['tau'] >= 0 else np.inf)
+    return prediction
+
+
+def draw_us_with_arrows(me, them):
+    me.draw()
+    draw_centered_arrow(loc=me.center, vel=me.velocity)
+    them.draw()
+    draw_centered_arrow(loc=them.center, vel=them.velocity)
+
+
+def mk_us():
+    me = Puck(center=Vec2d(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2),
+              velocity=random_velocity(),
+              mass=100,
+              radius=42,
+              color=THECOLORS['red'])
+    them = Puck(center=Vec2d(SCREEN_WIDTH / 1.5, SCREEN_HEIGHT / 2.5),
+                velocity=random_velocity(),
+                mass=100,
+                radius=79,
+                color=THECOLORS['green'])
+    return me, them
 
 
 def draw_perps_to_cage(puck: Puck):
@@ -426,11 +497,17 @@ def demo_hull(pause=7.0):
         mass = 100)
     puck.step_many(DEMO_STEPS, DEMO_DT)
     hull = convex_hull(random_points(15))
-    draw_points(hull)
+    draw_int_tuples(hull)
     pairwise_toroidal(hull,
              lambda p0, p1: draw_collinear_point_and_param(
                  Vec2d(p0), Vec2d(p1), line_color=THECOLORS['purple']))
     time.sleep(pause)
+
+
+#   ___ _            _       ___     _ _ _    _
+#  / __| |__ _ _____(_)__   / __|___| | (_)__(_)___ _ _  ___
+# | (__| / _` (_-<_-< / _| | (__/ _ \ | | (_-< / _ \ ' \(_-<
+#  \___|_\__,_/__/__/_\__|  \___\___/_|_|_/__/_\___/_||_/__/
 
 
 def create_ball(x, y, r, m, color, e=1.0):
@@ -503,12 +580,19 @@ def demo_classic(steps=500):
         game_state.frame_step()
 
 
+#  __  __      _
+# |  \/  |__ _(_)_ _
+# | |\/| / _` | | ' \
+# |_|  |_\__,_|_|_||_|
+
+
 def main():
     global g_screen
     set_up_screen()
     # demo_hull(0.75)
-    demo_cage(pause=0.75)
+    demo_cage(pause=1.75)
     # demo_classic(steps=3000)
+    # input('Press [Enter] to end the program.')
 
 
 if __name__ == "__main__":
