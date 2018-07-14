@@ -11,17 +11,17 @@ import numpy.random as rndm
 from typing import List, Tuple, Callable
 
 
-WIDTH = 1000
-HEIGHT = 700
+SCREEN_WIDTH = 1000
+SCREEN_HEIGHT = 700
 DEMO_STEPS = 100
 DEMO_DT = 1.00
 DEMO_RADIUS = 100
 PADDING = 10
 
 TOP_LEFT = (PADDING, PADDING)
-BOTTOM_LEFT = (PADDING, HEIGHT - PADDING - 1)
-BOTTOM_RIGHT = (WIDTH - PADDING - 1, HEIGHT - PADDING - 1)
-TOP_RIGHT = Vec2d(WIDTH - PADDING - 1, PADDING)
+BOTTOM_LEFT = (PADDING, SCREEN_HEIGHT - PADDING - 1)
+BOTTOM_RIGHT = (SCREEN_WIDTH - PADDING - 1, SCREEN_HEIGHT - PADDING - 1)
+TOP_RIGHT = Vec2d(SCREEN_WIDTH - PADDING - 1, PADDING)
 
 
 def clear_screen(color=THECOLORS['black']):
@@ -48,6 +48,7 @@ class Puck(object):
     def __init__(self,
                  center,
                  velocity,
+                 mass,
                  radius=DEMO_RADIUS,
                  color=THECOLORS['red'],
                  dont_fill_bit=0):
@@ -57,9 +58,13 @@ class Puck(object):
 
         self.center = center
         self.velocity = velocity
+        self.mass = mass
         self.radius = radius
         self.color = color
         self.dont_fill_bit = dont_fill_bit
+
+    def momentum(self):
+        return self.mass * self.velocity
 
     def reset(self):
         self.center = self._original_center
@@ -75,12 +80,9 @@ class Puck(object):
                            self.radius,
                            self.dont_fill_bit)
 
-    def animate(self, steps, dt: float):
+    def step_many(self, steps, dt: float):
         for i in range(steps):
             self.step(dt)
-            clear_screen()
-            self.draw()
-            pygame.display.flip()
 
     def predict_a_wall_collision(self, wall: Wall, dt=1):
         p = self.center
@@ -94,18 +96,49 @@ class Puck(object):
         projected_speed = self.velocity.dot(puck_drop_normal_direction)
         distance_to_wall = (q_prime - p).length
         predicted_time = dt * distance_to_wall / projected_speed \
-            if projected_speed != 0 else pymunk.inf
+            if projected_speed != 0 else np.inf
         return predicted_time, q_prime, t_prime, wall
+
+    def overlapping_disaster(self, other: 'Puck', dt=1):
+        _, d = self._get_relative_distance(other)
+        return d < 0
+
+    def _get_relative_distance(self, other: 'Puck'):
+        p = self.center
+        q = other.center
+        dp = q - p  # other's position in my inertial frame
+        d = dp.length - self.radius - other.radius
+        return dp, d
 
     def predict_a_puck_collision(self, other: 'Puck', dt=1):
         """See https://goo.gl/jQik91 for forward-references as strings."""
-        pass
+        dp, d = self._get_relative_distance(other)
+        # other's velocity in my inertial frame
+        dv = other.velocity - self.velocity
+        # normal component of other's velocity in my inertial frame
+        n = dp.normalized()
+        dv_n = dv.dot(n)
+        if d < 0:
+            # they're overlapped NOW! Too late!
+            tau_impact = -np.inf
+        else:
+            if dv_n < 0:
+                # other is heading toward me
+                tau_impact = dt * d / dv_n
+            elif dv_n == 0:
+                # other is going exactly parallel to me
+                tau_impact = np.inf
+                # TODO: test for glancing or continuous contact
+            else:
+                # other is heading away from me
+                tau_impact = np.inf
+        return tau_impact, other, dp, n, dv, dv_n
 
     def find_nearest_wall_collision(self, walls):
         predictions = [self.predict_a_wall_collision(wall) for wall in walls]
         prediction = arg_min(
             predictions,
-            lambda p: p[0] if p[0] >= 0 else pymunk.inf)
+            lambda p: p[0] if p[0] >= 0 else np.inf)
         return prediction
 
 
@@ -119,7 +152,7 @@ def parametric_line(p0: Vec2d, p1: Vec2d) -> Callable:
 
 
 def random_points(n):
-    return [Vec2d(p[0] * WIDTH, p[1] * HEIGHT) for p in rndm.random((n, 2))]
+    return [Vec2d(p[0] * SCREEN_WIDTH, p[1] * SCREEN_HEIGHT) for p in rndm.random((n, 2))]
 
 
 # https://goo.gl/PR24H2
@@ -171,9 +204,9 @@ def convex_hull(points: List[Vec2d]) -> List[Tuple[int, int]]:
 
 def screen_cage(pad=10):
     return [Vec2d(pad, pad),
-            Vec2d(pad, HEIGHT - pad - 1),
-            Vec2d(WIDTH - pad - 1, HEIGHT - pad - 1),
-            Vec2d(WIDTH - pad - 1, pad)]
+            Vec2d(pad, SCREEN_HEIGHT - pad - 1),
+            Vec2d(SCREEN_WIDTH - pad - 1, SCREEN_HEIGHT - pad - 1),
+            Vec2d(SCREEN_WIDTH - pad - 1, pad)]
 
 
 def draw_points(int_tuples: List[Tuple[int, int]],
@@ -191,10 +224,10 @@ def collinear_point_and_parameter(u: Vec2d, v: Vec2d, p: Vec2d) -> \
 
 
 def draw_collinear_point_and_param(
-        u=Vec2d(10, HEIGHT - 10 - 1),
-        v=Vec2d(WIDTH - 10 - 1, HEIGHT - 10 - 1),
-        p=Vec2d(WIDTH / 2 + DEMO_STEPS - 1,
-                HEIGHT / 2 + (DEMO_STEPS - 1) / 2),
+        u=Vec2d(10, SCREEN_HEIGHT - 10 - 1),
+        v=Vec2d(SCREEN_WIDTH - 10 - 1, SCREEN_HEIGHT - 10 - 1),
+        p=Vec2d(SCREEN_WIDTH / 2 + DEMO_STEPS - 1,
+                SCREEN_HEIGHT / 2 + (DEMO_STEPS - 1) / 2),
         point_color=THECOLORS['white'],
         line_color=THECOLORS['cyan']):
     spot_radius = 9
@@ -223,15 +256,8 @@ def draw_cage():
     draw_points([p.int_tuple for p in screen_cage()], THECOLORS['green'])
 
 
-def main():
-    global g_screen
-    set_up_screen()
-    demo_hull(0.75)
-    demo_cage()
-
-
 def arg_min(things, criterion):
-    so_far = pymunk.inf
+    so_far = np.inf
     the_one = None
     for thing in things:
         c = criterion(thing)
@@ -241,21 +267,43 @@ def arg_min(things, criterion):
     return the_one
 
 
-def demo_cage(pause=1.5):
+def demo_cage(pause=0.75):
     clear_screen()
-    puck = Puck(center=Vec2d(WIDTH / 2, HEIGHT /2),
-                velocity=random_velocity())
-    puck.animate(DEMO_STEPS, DEMO_DT)
+
+    me = Puck(center=Vec2d(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2),
+                velocity=random_velocity(),
+                mass=100,
+                radius=42)
+
+    them = Puck(center=Vec2d(SCREEN_WIDTH / 1.5, SCREEN_HEIGHT / 2.5),
+                velocity=random_velocity(),
+                mass=100,
+                radius=79,
+                color=THECOLORS['green'])
+
+    clear_screen()
+    me.draw()
+    them.draw()
+    me.step_many(DEMO_STEPS, DEMO_DT)
+    them.step_many(DEMO_STEPS, DEMO_DT)
+    me.draw()
+    them.draw()
+    pygame.display.flip()
+
     draw_cage()
-    draw_perps_to_cage(puck)
+
+    draw_perps_to_cage(me)
+    draw_perps_to_cage(them)
+
     cage = screen_cage()
+
     walls = pairwise_toroidal(cage, Wall)
     wall_collision_predictions = \
-        [puck.predict_a_wall_collision(wall) for wall in walls]
+        [me.predict_a_wall_collision(wall) for wall in walls]
     # find smallest non-negative predicted collision
-    prediction = arg_min(
+    wall_prediction = arg_min(
         wall_collision_predictions,
-        lambda p: p[0] if p[0] >= 0 else pymunk.inf)
+        lambda p: p[0] if p[0] >= 0 else np.inf)
     # puck.animate(3 * DEMO_STEPS, DEMO_DT)
     time.sleep(pause)
 
@@ -274,8 +322,11 @@ def draw_perps_to_cage(puck: Puck):
 
 def demo_hull(pause=7.0):
     clear_screen()
-    puck = Puck(center=Vec2d(WIDTH / 2, HEIGHT /2), velocity=Vec2d(1, 1/2))
-    puck.animate(DEMO_STEPS, DEMO_DT)
+    puck = Puck(
+        center=Vec2d(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2),
+        velocity=Vec2d(1, 1/2),
+        mass = 100)
+    puck.step_many(DEMO_STEPS, DEMO_DT)
     hull = convex_hull(random_points(15))
     draw_points(hull)
     pairwise_toroidal(hull,
@@ -287,7 +338,7 @@ def demo_hull(pause=7.0):
 def set_up_screen(pause=0.75):
     global g_screen
     pygame.init()
-    g_screen = pygame.display.set_mode((WIDTH, HEIGHT))
+    g_screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
     # clock = pygame.time.Clock()
     g_screen.set_alpha(None)
     time.sleep(pause)
@@ -324,7 +375,7 @@ class GameState(object):
 
         self.create_walls()
         self.create_obstacle(x=200, y=350, r=DEMO_RADIUS)
-        self.create_cat(x=700, y=HEIGHT - PADDING - 100, r=30)
+        self.create_cat(x=700, y=SCREEN_HEIGHT - PADDING - 100, r=30)
         self.create_car(x=100, y=100, r=25)
 
     def create_walls(self):
@@ -364,8 +415,19 @@ class GameState(object):
         pygame.display.flip()
 
 
+def demo_classic(steps=500):
+    game_state = GameState()
+    for _ in range(steps):
+        game_state.frame_step()
+
+
+def main():
+    global g_screen
+    set_up_screen()
+    # demo_hull(0.75)
+    demo_cage(pause=3.0)
+    # demo_classic(steps=3000)
+
+
 if __name__ == "__main__":
     main()
-    game_state = GameState()
-    for _ in range(2000):
-        game_state.frame_step()
