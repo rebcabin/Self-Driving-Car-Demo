@@ -282,12 +282,18 @@ def demo_cage(pause=0.75):
                 color=THECOLORS['green'])
 
     clear_screen()
+
     me.draw()
+    draw_arrow(loc=me.center, vel=me.velocity)
     them.draw()
+    draw_arrow(loc=them.center, vel=them.velocity)
+
     me.step_many(DEMO_STEPS, DEMO_DT)
     them.step_many(DEMO_STEPS, DEMO_DT)
+
     me.draw()
     them.draw()
+
     pygame.display.flip()
 
     draw_cage()
@@ -296,7 +302,6 @@ def demo_cage(pause=0.75):
     draw_perps_to_cage(them)
 
     cage = screen_cage()
-
     walls = pairwise_toroidal(cage, Wall)
     wall_collision_predictions = \
         [me.predict_a_wall_collision(wall) for wall in walls]
@@ -304,8 +309,71 @@ def demo_cage(pause=0.75):
     wall_prediction = arg_min(
         wall_collision_predictions,
         lambda p: p[0] if p[0] >= 0 else np.inf)
-    # puck.animate(3 * DEMO_STEPS, DEMO_DT)
+
     time.sleep(pause)
+
+
+def rotate_seq(pt, c, s):
+    x = pt[0]
+    y = pt[1]
+    return (c * x  -  s * y,
+            s * x  +  c * y)
+
+
+def translate_seq(pt, x_prime, y_prime):
+    x = pt[0]
+    y = pt[1]
+    return (x + x_prime, y + y_prime)
+
+
+def scale_seq(pt, xs, ys):
+    x = pt[0]
+    y = pt[1]
+    return (x * xs, y * ys)
+
+
+def centroid_seq(pts):
+    l = len(pts)
+    return (sum(pt[0] for pt in pts) / l,
+            sum(pt[1] for pt in pts) / l)
+
+
+def draw_arrow(loc, vel):
+    arrow_surface = g_screen.copy()
+    arrow_surface.set_alpha(175)
+
+    arrow_pts = (
+        (  0, 100),
+        (  0, 200),
+        (200, 200),
+        (200, 300),
+        (300, 150),
+        (200,   0),
+        (200, 100))
+
+    speed = vel.length
+    sps = [scale_seq(p, speed / 4, 1 / 4) for p in arrow_pts]
+
+    ctr = centroid_seq(sps)
+    cps = [translate_seq(p, -ctr[0], -ctr[1]) for p in sps]
+
+    angle = np.arctan2(vel[1], vel[0])
+    c = np.cos(angle)
+    s = np.sin(angle)
+    qs = [rotate_seq(p, c, s) for p in cps]
+
+    ps = [translate_seq(p, loc[0], loc[1]) for p in qs]
+
+    pygame.draw.polygon(
+        arrow_surface,
+        THECOLORS['aliceblue'],  # (0, 0, 0),
+        ps,
+        0)
+
+    # ns = pygame.transform.rotate(arrow_surface, -angle)
+    g_screen.blit(
+        source=arrow_surface,
+        dest=((0, 0)))  # ((loc - Vec2d(0, 150)).int_tuple))
 
 
 def draw_perps_to_cage(puck: Puck):
@@ -425,7 +493,7 @@ def main():
     global g_screen
     set_up_screen()
     # demo_hull(0.75)
-    demo_cage(pause=3.0)
+    demo_cage(pause=0.75)
     # demo_classic(steps=3000)
 
 
