@@ -139,6 +139,7 @@ class Puck(object):
         # normal component of other's velocity in my inertial frame
         dv_n = dv.dot(n)
         gonna_hit = False
+        tau_impact = np.inf
         if d < 0:
             # they're overlapped NOW! Too late!
             # TODO: can't handle this yet.
@@ -149,15 +150,22 @@ class Puck(object):
                 # The following is when the other's strike point crosses the
                 # line perpendicular to the normal vector through my strike
                 # point in my coordinate system. This may not be an impact!
-                tau_impact = - d / dv_n / dt  # measured in steps
-                gonna_hit = True
+                tau_plane_crossing = - d / dv_n / dt  # measured in steps
+                # new displacement
+                new_me = self.center + tau_plane_crossing * dt * self.velocity
+                new_it = other.center + tau_plane_crossing * dt * other.velocity
+                new_dp = new_it - new_me
+                new_d = new_dp.length
+                if new_d <= self.radius + other.radius:
+                    tau_impact = tau_plane_crossing
+                    gonna_hit = True
             elif dv_n == 0:
                 # other is going exactly parallel to me
-                tau_impact = np.inf
+                pass
                 # TODO: test for glancing or continuous contact
             else:
                 # other is heading away from me
-                tau_impact = np.inf
+                pass
         return {'tau': tau_impact,
                 'victim': other,
                 'relative_displacement': dp,
