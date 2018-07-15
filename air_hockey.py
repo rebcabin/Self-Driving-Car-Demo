@@ -8,7 +8,7 @@ from pymunk.pygame_util import draw
 import time
 import numpy as np
 import numpy.random as rndm
-from typing import List, Tuple, Callable
+from typing import List, Tuple, Callable, Dict, Any
 
 import pprint
 pp = pprint.PrettyPrinter(indent=2)
@@ -32,6 +32,174 @@ TOP_LEFT = (PADDING, PADDING)
 BOTTOM_LEFT = (PADDING, SCREEN_HEIGHT - PADDING - 1)
 BOTTOM_RIGHT = (SCREEN_WIDTH - PADDING - 1, SCREEN_HEIGHT - PADDING - 1)
 TOP_RIGHT = Vec2d(SCREEN_WIDTH - PADDING - 1, PADDING)
+
+
+# __   ___     _             _ _____ _
+# \ \ / (_)_ _| |_ _  _ __ _| |_   _(_)_ __  ___
+#  \ V /| | '_|  _| || / _` | | | | | | '  \/ -_)
+#   \_/ |_|_|  \__|\_,_\__,_|_| |_| |_|_|_|_\___|
+
+
+class VirtualTime(int):
+    """Establishes a type for Virtual Time; it's an int."""
+    pass
+
+
+#  ___                         ___ ___
+# | _ \_ _ ___  __ ___ ______ |_ _|   \
+# |  _/ '_/ _ \/ _/ -_|_-<_-<  | || |) |
+# |_| |_| \___/\__\___/__/__/ |___|___/
+
+
+class ProcessID(str):
+    """Establishes a type for Process ID; it's a string."""
+    pass
+
+
+#  __  __                            ___          _
+# |  \/  |___ ______ __ _ __ _ ___  | _ ) ___  __| |_  _
+# | |\/| / -_|_-<_-</ _` / _` / -_) | _ \/ _ \/ _` | || |
+# |_|  |_\___/__/__/\__,_\__, \___| |___/\___/\__,_|\_, |
+#                        |___/                      |__/
+
+
+class MessageBody(Dict):
+    """Establishes a type for message bodies; they're Dicts."""
+    pass
+
+
+#  _____ _              _                           _
+# |_   _(_)_ __  ___ __| |_ __ _ _ __  _ __  ___ __| |
+#   | | | | '  \/ -_|_-<  _/ _` | '  \| '_ \/ -_) _` |
+#   |_| |_|_|_|_\___/__/\__\__,_|_|_|_| .__/\___\__,_|
+#                                     |_|
+
+
+class Timestamped(object):
+    """Establishes a type for timestamped objects: messages, states, logical
+processes."""
+    def __init__(self, timestamp: VirtualTime):
+        self.virtual_time = timestamp
+
+
+#  ___             _     __  __
+# | __|_ _____ _ _| |_  |  \/  |___ ______ __ _ __ _ ___
+# | _|\ V / -_) ' \  _| | |\/| / -_|_-<_-</ _` / _` / -_)
+# |___|\_/\___|_||_\__| |_|  |_\___/__/__/\__,_\__, \___|
+#                                              |___/
+
+
+class EventMessage(Timestamped):
+
+    def __init__(self,
+                 sender: ProcessID, sendtime: VirtualTime,
+                 receiver: ProcessID, receivetime: VirtualTime,
+                 sign: bool, body: MessageBody):
+        my_str = f''
+        if receivetime <= sendtime:
+            raise ValueError()
+        super().__init__(timestamp=receivetime if sign else sendtime)
+        self.sender = sender
+        self.sendtime = sendtime
+        self.receiver = receiver
+        self.receivetime = receivetime
+        self.sign = sign
+        self.body = body
+
+    def __eq__(self, other: 'EventMessage'):
+        """Check equality for all attributes EXCEPT algebraic sign.
+        TODO: optimize with hashes or uuids."""
+        return self.sender == other.sender and \
+               self.sendtime == other.sendtime and \
+               self.receiver == other.receiver and \
+               self.receivetime == other.receivetime and \
+               self.body == other.body
+
+
+#  _______      _____ _        _
+# |_   _\ \    / / __| |_ __ _| |_ ___
+#   | |  \ \/\/ /\__ \  _/ _` |  _/ -_)
+#   |_|   \_/\_/ |___/\__\__,_|\__\___|
+
+
+class State(EventMessage):
+    def __init__(self,
+                 sender: ProcessID, sendtime: VirtualTime,
+                 body: MessageBody):
+        """Modeled as a positive event message from self to self with
+        indeterminate receive time."""
+#  _              _         _   ___
+# | |   ___  __ _(_)__ __ _| | | _ \_ _ ___  __ ___ ______
+# | |__/ _ \/ _` | / _/ _` | | |  _/ '_/ _ \/ _/ -_|_-<_-<
+# |____\___/\__, |_\__\__,_|_| |_| |_| \___/\__\___/__/__/
+#           |___/
+
+
+#   ___                      __  __
+#  / _ \ _  _ ___ _ _ _  _  |  \/  |___ ______ __ _ __ _ ___
+# | (_) | || / -_) '_| || | | |\/| / -_|_-<_-</ _` / _` / -_)
+#  \__\_\\_,_\___|_|  \_, | |_|  |_\___/__/__/\__,_\__, \___|
+#                     |__/                         |___/
+
+
+#  ___     _           _      _        ___
+# / __| __| |_  ___ __| |_  _| |___   / _ \ _  _ ___ _  _ ___
+# \__ \/ _| ' \/ -_) _` | || | / -_) | (_) | || / -_) || / -_)
+# |___/\__|_||_\___\__,_|\_,_|_\___|  \__\_\\_,_\___|\_,_\___|
+
+
+#  _______      _____
+# |_   _\ \    / / _ \ _  _ ___ _  _ ___
+#   | |  \ \/\/ / (_) | || / -_) || / -_)
+#   |_|   \_/\_/ \__\_\\_,_\___|\_,_\___|
+
+
+#  ___ _        _          ___
+# / __| |_ __ _| |_ ___   / _ \ _  _ ___ _  _ ___
+# \__ \  _/ _` |  _/ -_) | (_) | || / -_) || / -_)
+# |___/\__\__,_|\__\___|  \__\_\\_,_\___|\_,_\___|
+
+
+#   ___       _             _      ___
+#  / _ \ _  _| |_ _ __ _  _| |_   / _ \ _  _ ___ _  _ ___
+# | (_) | || |  _| '_ \ || |  _| | (_) | || / -_) || / -_)
+#  \___/ \_,_|\__| .__/\_,_|\__|  \__\_\\_,_\___|\_,_\___|
+#                |_|
+
+
+#  ___                _      ___
+# |_ _|_ _  _ __ _  _| |_   / _ \ _  _ ___ _  _ ___
+#  | || ' \| '_ \ || |  _| | (_) | || / -_) || / -_)
+# |___|_||_| .__/\_,_|\__|  \__\_\\_,_\___|\_,_\___|
+#          |_|
+
+
+#  ___ _           _         _   ___
+# | _ \ |_ _  _ __(_)__ __ _| | | _ \_ _ ___  __ ___ ______ ___ _ _
+# |  _/ ' \ || (_-< / _/ _` | | |  _/ '_/ _ \/ _/ -_|_-<_-</ _ \ '_|
+# |_| |_||_\_, /__/_\__\__,_|_| |_| |_| \___/\__\___/__/__/\___/_|
+#          |__/
+
+
+#  ___                                   ___
+# | _ \_ _ ___  __ ___ ______ ___ _ _   / _ \ _  _ ___ _  _ ___
+# |  _/ '_/ _ \/ _/ -_|_-<_-</ _ \ '_| | (_) | || / -_) || / -_)
+# |_| |_| \___/\__\___/__/__/\___/_|    \__\_\\_,_\___|\_,_\___|
+
+
+class LogicalProcess(object):
+
+    def __init__(self):
+        pass
+
+    pass
+
+
+#  _____     _    _       ___          _
+# |_   _|_ _| |__| |___  | _ \___ __ _(_)___ _ _
+#   | |/ _` | '_ \ / -_) |   / -_) _` | / _ \ ' \
+#   |_|\__,_|_.__/_\___| |_|_\___\__, |_\___/_||_|
+#                                |___/
 
 
 # __      __    _ _
@@ -62,13 +230,7 @@ class Wall(object):
 
 class Puck(object):
 
-    def __init__(self,
-                 center,
-                 velocity,
-                 mass,
-                 radius,
-                 color,
-                 dont_fill_bit=0):
+    def __init__(self, center, velocity, mass, radius, color, dont_fill_bit=0):
 
         self._original_center = center
         self._original_velocity = velocity
@@ -79,9 +241,6 @@ class Puck(object):
         self.radius = radius
         self.color = color
         self.dont_fill_bit = dont_fill_bit
-
-    def momentum(self):
-        return self.mass * self.velocity
 
     def reset(self):
         self.center = self._original_center
@@ -108,7 +267,7 @@ class Puck(object):
         q_prime, t_prime = collinear_point_and_parameter(
             wall.left, wall.right, point_on_circle)
         # q_prime should be almost the same as q
-        # TODO: np.testing.assert_allclose(), meanwhile, inspect in debugger.
+        # TODO: np.testing.assert_allclose(...), meanwhile, inspect in debugger.
         projected_speed = self.velocity.dot(drop_normal_direction)
         distance_to_wall = (q_prime - point_on_circle).length
         # predicted step time can be negative! it is permitted!
@@ -124,13 +283,14 @@ class Puck(object):
         """See https://goo.gl/jQik91 for forward-references as strings."""
         dp = them.center - self.center
         # Relative distance as a function of time, find its zero:
+        #
         # Collect[{x-vx t, y-vy t}^2 - d1^2, t]
+        #
         # (x^2+y^2)-d1^2 + t (-2 x vx-2 y vy) + t^2 (vx^2 + vy^2)
         # \_____ ______/     \______ _______/       \_____ _____/
         #       v                   v                     v
         #       c                   b                     a
-        # TODO: The order of these velocities is critical lest time go backward.
-        # TODO: Must provide an intutive explanation.
+        #
         dv = self.velocity - them.velocity
         a = dv.get_length_sqrd()
         b = -2 * dp.dot(dv)
@@ -400,10 +560,6 @@ def demo_cage(pause=0.75, dt=1):
 
     my_puck_prediction = me.predict_a_puck_collision(them, dt)
 
-    # The following is just a sanity check; it should always be equal to and
-    # opposite from my_puck_prediction.
-    # their_puck_prediction = them.predict_a_puck_collision(me, dt)
-
     # pp.pprint({'my_wall_prediction': my_wall_prediction,
     #            'their_wall_prediction': their_wall_prediction,
     #            'my_puck_prediction': my_puck_prediction,
@@ -442,6 +598,7 @@ def demo_cage(pause=0.75, dt=1):
 
         print('wall strike')
 
+    assert tau >= 0
 
     pygame.display.flip()
 
@@ -617,7 +774,7 @@ def main():
     set_up_screen()
     # demo_hull(0.75)
     for _ in range(20):
-        demo_cage(pause=6, dt=0.001)
+        demo_cage(pause=2, dt=0.001)
         clear_screen()
     # demo_classic(steps=3000)
     # input('Press [Enter] to end the program.')
