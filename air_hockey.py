@@ -103,81 +103,56 @@ class Puck(object):
     def predict_a_wall_collision(self, wall: Wall, dt):
         p = self.center
         q, t = collinear_point_and_parameter(wall.left, wall.right, p)
-        puck_drop_normal_direction = (q - p).normalized()
-        puck_drop_point_on_circle = p + self.radius * puck_drop_normal_direction
+        drop_normal_direction = (q - p).normalized()
+        point_on_circle = p + self.radius * drop_normal_direction
         q_prime, t_prime = collinear_point_and_parameter(
-            wall.left, wall.right, puck_drop_point_on_circle)
+            wall.left, wall.right, point_on_circle)
         # q_prime should be almost the same as q
         # TODO: np.testing.assert_allclose(), meanwhile, inspect in debugger.
-        projected_speed = self.velocity.dot(puck_drop_normal_direction)
-        distance_to_wall = (q_prime - puck_drop_point_on_circle).length
+        projected_speed = self.velocity.dot(drop_normal_direction)
+        distance_to_wall = (q_prime - point_on_circle).length
+        # predicted step time can be negative! it is permitted!
         predicted_step_time = distance_to_wall / projected_speed / dt \
             if projected_speed != 0 else np.inf
         return {'tau': predicted_step_time,
-                'puck_strike_point': puck_drop_point_on_circle,
+                'puck_strike_point': point_on_circle,
                 'wall_strike_point': q_prime,
-                'parameter': t_prime,
-                'wall': wall}
+                'wall_strike_parameter': t_prime,
+                'wall_victim': wall}
 
-    def overlapping_disaster(self, other: 'Puck', dt=1):
-        _, d = self._get_relative_center_displacement(other)
-        return d < 0
-
-    def _get_relative_center_displacement(self, other: 'Puck'):
-        p = self.center
-        q = other.center
-        dp = q - p  # other's position in my inertial frame
-        d = dp.length - self.radius - other.radius
-        return dp, d
-
-    def predict_a_puck_collision(self, other: 'Puck', dt):
+    def predict_a_puck_collision(self, them: 'Puck', dt):
         """See https://goo.gl/jQik91 for forward-references as strings."""
-        dp, d = self._get_relative_center_displacement(other)
-        # other's velocity in my inertial frame
-        dv = other.velocity - self.velocity
-        n = dp.normalized()
-        # normal component of other's velocity in my inertial frame
-        dv_n = dv.dot(n)
+        dp = them.center - self.center
+        # Relative distance as a function of time, find its zero:
+        # Collect[{x-vx t, y-vy t}^2 - d1^2, t]
+        # (x^2+y^2)-d1^2 + t (-2 x vx-2 y vy) + t^2 (vx^2 + vy^2)
+        # \_____ ______/     \______ _______/       \_____ _____/
+        #       v                   v                     v
+        #       c                   b                     a
+        # TODO: The order of these velocities is critical lest time go backward.
+        # TODO: Must provide an intutive explanation.
+        dv = self.velocity - them.velocity
+        a = dv.get_length_sqrd()
+        b = -2 * dp.dot(dv)
+        d1 = self.radius + them.radius
+        c = dp.get_length_sqrd() - (d1 * d1)
+        disc = (b * b) - (4 * a * c)
         gonna_hit = False
-        tau_impact = np.inf
-        if d < 0:
-            # they're overlapped NOW! Too late!
-            # TODO: can't handle this yet.
-            tau_impact = -np.inf
-        else:
-            if dv_n < 0:
-                # other is heading toward me
-                # The following is when the other's strike point crosses the
-                # line perpendicular to the normal vector through my strike
-                # point in my coordinate system. This may not be an impact!
-                tau_plane_crossing = - d / dv_n / dt  # measured in steps
-                # new displacement
-                new_me = self.center + tau_plane_crossing * dt * self.velocity
-                new_it = other.center + tau_plane_crossing * dt * other.velocity
-                new_dp = new_it - new_me
-                new_d = new_dp.length
-                if new_d <= self.radius + other.radius:
-                    tau_impact = tau_plane_crossing
-                    gonna_hit = True
-            elif dv_n == 0:
-                # other is going exactly parallel to me
-                pass
-                # TODO: test for glancing or continuous contact
+        tau_impact_steps = np.inf
+        if disc >= 0 and a != 0:
+            sdisc = np.sqrt(disc)
+            tau1 = (-b + sdisc) / (2 * a)
+            tau2 = (-b - sdisc) / (2 * a)
+            if tau1 >= 0 and tau2 >= 0:
+                tau_impact_steps = min(tau1, tau2) / dt
+                gonna_hit = True
             else:
-                # other is heading away from me
-                pass
-        return {'tau': tau_impact,
-                'victim': other,
-                'relative_displacement': dp,
-                'gonna_hit': gonna_hit,
-                'my_strike_point': self.radius * n \
-                    if gonna_hit else (0, 0),
-                'their_strike_point': dp - other.radius * n \
-                    if gonna_hit else (0, 0),
-                'distance': d,
-                'normal': n,
-                'relative_velocity': dv,
-                'velocity_projection': dv_n}
+                tau_impact_steps = max(tau1, tau2) / dt
+                gonna_hit = tau1 >= 0 or tau2 >= 0
+
+        return {'tau': tau_impact_steps,
+                'puck_victim': them,
+                'gonna_hit': gonna_hit}
 
 
 #   ___                   _              ___     _       _ _   _
@@ -424,19 +399,15 @@ def demo_cage(pause=0.75, dt=1):
                 THECOLORS['purple1'])
 
     my_puck_prediction = me.predict_a_puck_collision(them, dt)
-    if my_puck_prediction['gonna_hit']:
-        draw_vector(me.center + my_puck_prediction['my_strike_point'],
-                    me.center + my_puck_prediction['their_strike_point'],
-                    THECOLORS['gold1'])
 
     # The following is just a sanity check; it should always be equal to and
     # opposite from my_puck_prediction.
-    their_puck_prediction = them.predict_a_puck_collision(me, dt)
+    # their_puck_prediction = them.predict_a_puck_collision(me, dt)
 
-    pp.pprint({'my_wall_prediction': my_wall_prediction,
-               'their_wall_prediction': their_wall_prediction,
-               'my_puck_prediction': my_puck_prediction,
-               'their_puck_prediction': their_puck_prediction})
+    # pp.pprint({'my_wall_prediction': my_wall_prediction,
+    #            'their_wall_prediction': their_wall_prediction,
+    #            'my_puck_prediction': my_puck_prediction,
+    #            'their_puck_prediction': their_puck_prediction})
 
     nearest_wall_strike = arg_min([my_wall_prediction,
                                    their_wall_prediction],
@@ -445,38 +416,43 @@ def demo_cage(pause=0.75, dt=1):
     # TODO: can't handle a double wall strike
 
     if my_puck_prediction['gonna_hit'] and \
-            my_puck_prediction['tau'] != -np.inf and \
             my_puck_prediction['tau'] < nearest_wall_strike['tau']:
+
         tau = my_puck_prediction['tau']
+        step_and_draw_both(dt, me, tau, them)
 
-        me.step_many(int(tau), dt)
-        them.step_many(int(tau), dt)
-        me.draw()
-        them.draw()
+        n = (them.center - me.center).normalized()
 
-        n = my_puck_prediction['normal']
-        perp = 500 * Vec2d(n[1], -n[0])
-        draw_vector(me.center + my_puck_prediction['my_strike_point'],
-                    me.center + my_puck_prediction['my_strike_point'] + perp,
-                    THECOLORS['limegreen'])
-        draw_vector(me.center + my_puck_prediction['my_strike_point'],
-                    me.center + my_puck_prediction['my_strike_point'] - perp,
-                    THECOLORS['maroon1'])
+        perp = SCREEN_WIDTH * Vec2d(n[1], -n[0])
 
-        print('puck strike')
+        strike = me.center + me.radius * n
+        sanity = them.center - them.radius * n
+
+        draw_vector(strike, sanity, THECOLORS['goldenrod1'])
+
+        draw_vector(strike, strike + perp, THECOLORS['limegreen'])
+        draw_vector(strike, strike - perp, THECOLORS['maroon1'])
+
+        print({'puck strike': sanity-strike})
 
     else:  # strike the wall
         tau = nearest_wall_strike['tau']
-        me.step_many(int(tau), dt)
-        them.step_many(int(tau), dt)
-        me.draw()
-        them.draw()
+
+        step_and_draw_both(dt, me, tau, them)
+
         print('wall strike')
 
 
     pygame.display.flip()
 
     time.sleep(pause)
+
+
+def step_and_draw_both(dt, me, tau, them):
+    me.step_many(int(tau), dt)
+    them.step_many(int(tau), dt)
+    me.draw()
+    them.draw()
 
 
 def wall_prediction(puck, walls, dt):
@@ -640,7 +616,9 @@ def main():
     global g_screen
     set_up_screen()
     # demo_hull(0.75)
-    demo_cage(pause=10, dt=0.001)
+    for _ in range(20):
+        demo_cage(pause=6, dt=0.001)
+        clear_screen()
     # demo_classic(steps=3000)
     # input('Press [Enter] to end the program.')
 
