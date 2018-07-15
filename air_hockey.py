@@ -1,3 +1,5 @@
+import sys
+
 import pygame
 from pygame.color import THECOLORS
 
@@ -32,6 +34,10 @@ TOP_LEFT = (PADDING, PADDING)
 BOTTOM_LEFT = (PADDING, SCREEN_HEIGHT - PADDING - 1)
 BOTTOM_RIGHT = (SCREEN_WIDTH - PADDING - 1, SCREEN_HEIGHT - PADDING - 1)
 TOP_RIGHT = Vec2d(SCREEN_WIDTH - PADDING - 1, PADDING)
+
+
+# TODO: IDs might be best as uuids.
+# TODO: Message equality can be optimized.
 
 
 # __   ___     _             _ _____ _
@@ -75,11 +81,53 @@ class MessageBody(Dict):
 #                                     |_|
 
 
-class Timestamped(object):
-    """Establishes a type for timestamped objects: messages, states, logical
-processes."""
+# See https://goo.gl/hiwMgJ
+
+
+class ComparableMixin(object):
+    def _compare(self, other, method):
+        try:
+            return method(self._cmpkey(), other._cmpkey())
+        except (AttributeError, TypeError):
+            # _cmpkey not implemented, or return different type,
+            # so I can't compare with "other".
+            return NotImplemented
+
+    def __lt__(self, other):
+        return self._compare(other, lambda s,o: s < o)
+
+    def __le__(self, other):
+        return self._compare(other, lambda s,o: s <= o)
+
+    def __eq__(self, other):
+       return self._compare(other, lambda s,o: s == o)
+
+    def __ge__(self, other):
+        return self._compare(other, lambda s,o: s >= o)
+
+    def __gt__(self, other):
+        return self._compare(other, lambda s,o: s > o)
+
+    def __ne__(self, other):
+        return self._compare(other, lambda s,o: s != o)
+
+
+class Comparable(ComparableMixin):
+    def __init__(self, value):
+        self.value = value
+
+    def _cmpkey(self):
+        return self.value
+
+
+class Timestamped(ComparableMixin):
+    """Establishes a type for timestamped objects:
+    messages, states, logical processes."""
     def __init__(self, timestamp: VirtualTime):
-        self.virtual_time = timestamp
+        self.timestamp = timestamp
+
+    def _cmpkey(self):
+        return self.timestamp
 
 
 #  ___             _     __  __
@@ -128,6 +176,12 @@ class State(EventMessage):
                  body: MessageBody):
         """Modeled as a positive event message from self to self with
         indeterminate receive time."""
+        super().__init__(sender=sender,
+                         sendtime=sendtime,
+                         receiver=sender,
+                         receivetime=sys.maxsize,
+                         sign=1,
+                         body=body)
 #  _              _         _   ___
 # | |   ___  __ _(_)__ __ _| | | _ \_ _ ___  __ ___ ______
 # | |__/ _ \/ _` | / _/ _` | | |  _/ '_/ _ \/ _/ -_|_-<_-<

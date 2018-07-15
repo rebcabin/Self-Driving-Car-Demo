@@ -1,6 +1,7 @@
 from air_hockey import *
 import pytest
 
+
 def test_event_message():
     with pytest.raises(ValueError):
         EventMessage("me", VirtualTime(0),
@@ -19,6 +20,13 @@ def test_event_message():
                        sign=True,
                        body={})
     assert msg is not None
+
+
+def test_twstate():
+    state = State(sender="me",
+                  sendtime=100,
+                  body={'a': 1, 'sauce': 'steak'})
+    assert state is not None
 
 
 def test_test_itself():
