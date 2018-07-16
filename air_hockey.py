@@ -13,6 +13,7 @@ import numpy.random as rndm
 from typing import List, Tuple, Callable, Dict, Any
 
 import pprint
+
 pp = pprint.PrettyPrinter(indent=2)
 
 #   ___             _            _
@@ -97,7 +98,7 @@ class ComparableMixin(object):
         return self._compare(other, lambda s, o: s <= o)
 
     def __eq__(self, other):
-       return self._compare(other, lambda s, o: s == o)
+        return self._compare(other, lambda s, o: s == o)
 
     def __ge__(self, other):
         return self._compare(other, lambda s, o: s >= o)
@@ -112,6 +113,7 @@ class ComparableMixin(object):
 class Timestamped(ComparableMixin):
     """Establishes a type for timestamped objects:
     messages, states, logical processes."""
+
     def __init__(self, vt: VirtualTime):
         self.vt = vt
 
@@ -127,23 +129,27 @@ class Timestamped(ComparableMixin):
 
 
 class EventMessage(Timestamped):
-    """Positive messages have vt=receivetime by default, negative have vt=sendtime.
-    That makes easy the normal convention of inserting positive messages into
-    input queues and negative messages into output queues. When a negative
-    message is inserted into an input queue, its vt must be switched to the
-    receive time. Likewise, when a positive message is inserted into an output
-    queue, its vt must be switched to sendtime."""
+    """The vt field is an innovation over classical time warp. It is merely a
+    convenient to make the common case easy. Positive messages have
+    vt=receivetime by default, negative have vt=sendtime. That makes easy the
+    common case of inserting positive messages into input queues and negative
+    messages into output queues. When a negative message is inserted into an
+    input queue, its vt must be switched to the receive time. Likewise, when a
+    positive message is inserted into an output queue, its vt must be switched
+    to send time."""
+
     def __init__(self,
                  sender: ProcessID, sendtime: VirtualTime,
                  receiver: ProcessID, receivetime: VirtualTime,
                  sign: bool, body: Body):
         if receivetime <= sendtime:
-            raise ValueError()
+            raise ValueError(f"receive time {receivetime} must be strictly "
+                             f"greater than send time {sendtime}")
         super().__init__(vt=receivetime if sign else sendtime)
         self.sender = sender
-        self.sendtime = sendtime
+        self.send_time = sendtime
         self.receiver = receiver
-        self.receivetime = receivetime
+        self.receive_time = receivetime
         self.sign = sign
         self.body = body
 
@@ -151,9 +157,9 @@ class EventMessage(Timestamped):
         """Check equality for all attributes EXCEPT algebraic sign.
         TODO: optimize with hashes or uuids."""
         return self.sender == other.sender and \
-               self.sendtime == other.sendtime and \
+               self.send_time == other.send_time and \
                self.receiver == other.receiver and \
-               self.receivetime == other.receivetime and \
+               self.receive_time == other.receive_time and \
                self.body == other.body
 
     def __ne__(self, other: 'EventMessage'):
@@ -211,6 +217,7 @@ class State(EventMessage):
 class TWQueue(object):
     """Implements timestamp-ordered, vt-cursored queue with annihilation.
     TODO: optimize with priority queue or red-black tree."""
+
     def __init__(self):
         self.items = []
         self.vt = -sys.maxsize
@@ -250,6 +257,11 @@ class TWQueue(object):
 # |___/\__\__,_|\__\___|  \__\_\\_,_\___|\_,_\___|
 
 
+class StateQueue(TWQueue):
+    def __init__(self):
+        super().__init__()
+
+
 #   ___       _             _      ___
 #  / _ \ _  _| |_ _ __ _  _| |_   / _ \ _  _ ___ _  _ ___
 # | (_) | || |  _| '_ \ || |  _| | (_) | || / -_) || / -_)
@@ -257,11 +269,31 @@ class TWQueue(object):
 #                |_|
 
 
+class OutputQueue(TWQueue):
+    def __init__(self):
+        super().__init__()
+
+    def insert(self, message: EventMessage):
+        if message.sign:
+            message.vt = message.send_time
+        super().insert(message)
+
+
 #  ___                _      ___
 # |_ _|_ _  _ __ _  _| |_   / _ \ _  _ ___ _  _ ___
 #  | || ' \| '_ \ || |  _| | (_) | || / -_) || / -_)
 # |___|_||_| .__/\_,_|\__|  \__\_\\_,_\___|\_,_\___|
 #          |_|
+
+
+class InputQueue(TWQueue):
+    def __init__(self):
+        super().__init__()
+
+    def insert(self, message: EventMessage):
+        if not message.sign:
+            message.vt = message.receive_time
+        super().insert(message)
 
 
 #  ___ _           _         _   ___
@@ -484,8 +516,8 @@ def collinear_point_and_parameter(u: Vec2d, v: Vec2d, p: Vec2d) -> \
 def rotate_seq(pt, c, s):
     x = pt[0]
     y = pt[1]
-    return (c * x  -  s * y,
-            s * x  +  c * y)
+    return (c * x - s * y,
+            s * x + c * y)
 
 
 def translate_seq(pt, x_prime, y_prime):
@@ -543,7 +575,7 @@ def arg_min(things, criterion):
 
 
 def draw_int_tuples(int_tuples: List[Tuple[int, int]],
-                color=THECOLORS['yellow']):
+                    color=THECOLORS['yellow']):
     pygame.draw.polygon(g_screen, color, int_tuples, 1)
 
 
@@ -572,12 +604,12 @@ def draw_centered_arrow(loc, vel):
     arrow_surface.set_alpha(175)
 
     arrow_pts = (
-        (  0, 100),
-        (  0, 200),
+        (0, 100),
+        (0, 200),
         (200, 200),
         (200, 300),
         (300, 150),
-        (200,   0),
+        (200, 0),
         (200, 100))
 
     speed = vel.length
@@ -679,7 +711,7 @@ def demo_cage(pause=0.75, dt=1):
         draw_vector(strike, strike + perp, THECOLORS['limegreen'])
         draw_vector(strike, strike - perp, THECOLORS['maroon1'])
 
-        print({'puck strike': sanity-strike})
+        print({'puck strike': sanity - strike})
 
     else:  # strike the wall
         tau = nearest_wall_strike['tau']
@@ -766,14 +798,14 @@ def demo_hull(pause=7.0):
     clear_screen()
     puck = Puck(
         center=Vec2d(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2),
-        velocity=Vec2d(1, 1/2),
-        mass = 100)
+        velocity=Vec2d(1, 1 / 2),
+        mass=100)
     puck.step_many(DEMO_STEPS, DEMO_DT)
     hull = convex_hull(random_points(15))
     draw_int_tuples(hull)
     pairwise_toroidal(hull,
-             lambda p0, p1: draw_collinear_point_and_param(
-                 Vec2d(p0), Vec2d(p1), line_color=THECOLORS['purple']))
+                      lambda p0, p1: draw_collinear_point_and_param(
+                          Vec2d(p0), Vec2d(p1), line_color=THECOLORS['purple']))
     time.sleep(pause)
 
 
@@ -843,7 +875,7 @@ class GameState(object):
         # TODO: no easy way to reset the angle marker after a collision.
         g_screen.fill(THECOLORS["black"])
         draw(g_screen, self.space)
-        self.space.step(1./10)
+        self.space.step(1. / 10)
         pygame.display.flip()
 
 
