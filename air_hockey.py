@@ -48,7 +48,6 @@ TOP_RIGHT = Vec2d(SCREEN_WIDTH - PADDING - 1, PADDING)
 
 class VirtualTime(int):
     """Establishes a type for Virtual Time; it's an int."""
-    pass
 
 
 #  ___                         ___ ___
@@ -59,7 +58,6 @@ class VirtualTime(int):
 
 class ProcessID(str):
     """Establishes a type for Process ID; it's a string."""
-    pass
 
 
 #  __  __                            ___          _
@@ -69,9 +67,8 @@ class ProcessID(str):
 #                        |___/                      |__/
 
 
-class MessageBody(Dict):
+class Body(Dict):
     """Establishes a type for message bodies; they're Dicts."""
-    pass
 
 
 #  _____ _              _                           _
@@ -94,40 +91,32 @@ class ComparableMixin(object):
             return NotImplemented
 
     def __lt__(self, other):
-        return self._compare(other, lambda s,o: s < o)
+        return self._compare(other, lambda s, o: s < o)
 
     def __le__(self, other):
-        return self._compare(other, lambda s,o: s <= o)
+        return self._compare(other, lambda s, o: s <= o)
 
     def __eq__(self, other):
-       return self._compare(other, lambda s,o: s == o)
+       return self._compare(other, lambda s, o: s == o)
 
     def __ge__(self, other):
-        return self._compare(other, lambda s,o: s >= o)
+        return self._compare(other, lambda s, o: s >= o)
 
     def __gt__(self, other):
-        return self._compare(other, lambda s,o: s > o)
+        return self._compare(other, lambda s, o: s > o)
 
     def __ne__(self, other):
-        return self._compare(other, lambda s,o: s != o)
-
-
-class Comparable(ComparableMixin):
-    def __init__(self, value):
-        self.value = value
-
-    def _cmpkey(self):
-        return self.value
+        return self._compare(other, lambda s, o: s != o)
 
 
 class Timestamped(ComparableMixin):
     """Establishes a type for timestamped objects:
     messages, states, logical processes."""
-    def __init__(self, timestamp: VirtualTime):
-        self.timestamp = timestamp
+    def __init__(self, vt: VirtualTime):
+        self.vt = vt
 
     def _cmpkey(self):
-        return self.timestamp
+        return self.vt
 
 
 #  ___             _     __  __
@@ -138,15 +127,19 @@ class Timestamped(ComparableMixin):
 
 
 class EventMessage(Timestamped):
-
+    """Positive messages have vt=receivetime by default, negative have vt=sendtime.
+    That makes easy the normal convention of inserting positive messages into
+    input queues and negative messages into output queues. When a negative
+    message is inserted into an input queue, its vt must be switched to the
+    receive time. Likewise, when a positive message is inserted into an output
+    queue, its vt must be switched to sendtime."""
     def __init__(self,
                  sender: ProcessID, sendtime: VirtualTime,
                  receiver: ProcessID, receivetime: VirtualTime,
-                 sign: bool, body: MessageBody):
-        my_str = f''
+                 sign: bool, body: Body):
         if receivetime <= sendtime:
             raise ValueError()
-        super().__init__(timestamp=receivetime if sign else sendtime)
+        super().__init__(vt=receivetime if sign else sendtime)
         self.sender = sender
         self.sendtime = sendtime
         self.receiver = receiver
@@ -163,6 +156,10 @@ class EventMessage(Timestamped):
                self.receivetime == other.receivetime and \
                self.body == other.body
 
+    def __ne__(self, other: 'EventMessage'):
+        """Don't use default timestamp comparable for !=."""
+        return not self == other
+
 
 #  _______      _____ _        _
 # |_   _\ \    / / __| |_ __ _| |_ ___
@@ -173,15 +170,18 @@ class EventMessage(Timestamped):
 class State(EventMessage):
     def __init__(self,
                  sender: ProcessID, sendtime: VirtualTime,
-                 body: MessageBody):
-        """Modeled as a positive event message from self to self with
-        indeterminate receive time."""
+                 body: Body):
+        """Modeled as a negative event message from self to self with indeterminate
+        (infinite) receive time. It's negative, so its timestamp is the
+        sendtime, just like an output negative message."""
         super().__init__(sender=sender,
                          sendtime=sendtime,
                          receiver=sender,
                          receivetime=sys.maxsize,
-                         sign=1,
+                         sign=False,
                          body=body)
+
+
 #  _              _         _   ___
 # | |   ___  __ _(_)__ __ _| | | _ \_ _ ___  __ ___ ______
 # | |__/ _ \/ _` | / _/ _` | | |  _/ '_/ _ \/ _/ -_|_-<_-<
@@ -206,6 +206,42 @@ class State(EventMessage):
 # |_   _\ \    / / _ \ _  _ ___ _  _ ___
 #   | |  \ \/\/ / (_) | || / -_) || / -_)
 #   |_|   \_/\_/ \__\_\\_,_\___|\_,_\___|
+
+
+class TWQueue(object):
+    """Implements timestamp-ordered, vt-cursored queue with annihilation.
+    TODO: optimize with priority queue or red-black tree."""
+    def __init__(self):
+        self.items = []
+        self.vt = -sys.maxsize
+        self.rollback = False
+        self.annihilation = False
+
+    def vts(self):
+        """For debugging"""
+        return [i.vt for i in self.items]
+
+    def insert(self, item: Timestamped):
+        self.annihilation = False
+        # ROLLBACK!
+        if item.vt <= self.vt:
+            self.rollback = True
+            self.vt = item.vt
+        i = -sys.maxsize
+        for i in range(len(self.items)):
+            if item.vt > self.items[i].vt:
+                break
+            if item.vt == self.items[i].vt:
+                while item.vt == self.items[i].vt:
+                    if (item == self.items[i] and
+                            hasattr(item, 'sign') and
+                            item.sign == (not self.items[i].sign)):
+                        self.annihilation = True
+                        del self.items[i]
+                        return
+                    else:
+                        i += 1
+        self.items.insert(i, item)
 
 
 #  ___ _        _          ___
