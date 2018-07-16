@@ -76,6 +76,11 @@ def test_twqueue():
     q.insert(mm)
     assert q.vts() == [], f"annihilation happens."
     assert q.annihilation, f"annihilation flag is set."
+    q.insert(m)
+    assert q.vts() == [150], f"re-insert into empty is OK"
+    q.insert(EventMessage("me", 100, "alice", 150, True, {'dressing': 'mayo'}))
+    assert q.vts() == [150, 150]
+
 
 
 def test_input_queue():
@@ -90,4 +95,8 @@ def test_input_queue():
 
 
 def test_output_queue():
+    pass
+
+
+def test_sched_queue():
     pass

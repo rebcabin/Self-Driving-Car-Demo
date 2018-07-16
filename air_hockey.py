@@ -188,24 +188,11 @@ class State(EventMessage):
                          body=body)
 
 
-#  _              _         _   ___
-# | |   ___  __ _(_)__ __ _| | | _ \_ _ ___  __ ___ ______
-# | |__/ _ \/ _` | / _/ _` | | |  _/ '_/ _ \/ _/ -_|_-<_-<
-# |____\___/\__, |_\__\__,_|_| |_| |_| \___/\__\___/__/__/
-#           |___/
-
-
 #   ___                      __  __
 #  / _ \ _  _ ___ _ _ _  _  |  \/  |___ ______ __ _ __ _ ___
 # | (_) | || / -_) '_| || | | |\/| / -_|_-<_-</ _` / _` / -_)
 #  \__\_\\_,_\___|_|  \_, | |_|  |_\___/__/__/\__,_\__, \___|
 #                     |__/                         |___/
-
-
-#  ___     _           _      _        ___
-# / __| __| |_  ___ __| |_  _| |___   / _ \ _  _ ___ _  _ ___
-# \__ \/ _| ' \/ -_) _` | || | / -_) | (_) | || / -_) || / -_)
-# |___/\__|_||_\___\__,_|\_,_|_\___|  \__\_\\_,_\___|\_,_\___|
 
 
 #  _______      _____
@@ -235,19 +222,19 @@ class TWQueue(object):
             self.rollback = True
             self.vt = item.vt
         i = -sys.maxsize
-        for i in range(len(self.items)):
+        top = len(self.items)
+        for i in range(top):
             if item.vt > self.items[i].vt:
                 break
             if item.vt == self.items[i].vt:
-                while item.vt == self.items[i].vt:
-                    if (item == self.items[i] and
+                for j in range(i, top):
+                    if (item == self.items[j] and
                             hasattr(item, 'sign') and
-                            item.sign == (not self.items[i].sign)):
+                            item.sign == (not self.items[j].sign)):
                         self.annihilation = True
-                        del self.items[i]
+                        del self.items[j]
                         return
-                    else:
-                        i += 1
+                i = j
         self.items.insert(i, item)
 
 
@@ -294,6 +281,33 @@ class InputQueue(TWQueue):
         if not message.sign:
             message.vt = message.receive_time
         super().insert(message)
+
+
+#  _              _         _   ___
+# | |   ___  __ _(_)__ __ _| | | _ \_ _ ___  __ ___ ______
+# | |__/ _ \/ _` | / _/ _` | | |  _/ '_/ _ \/ _/ -_|_-<_-<
+# |____\___/\__, |_\__\__,_|_| |_| |_| \___/\__\___/__/__/
+#           |___/
+
+
+class LogicalProcess(Timestamped):
+    def __init__(self, pid: ProcessID):
+        self.now = sys.maxsize
+        super().__init__(self.now)
+        self.iq = InputQueue()
+        self.oq = OutputQueue()
+        self.sq = StateQueue()
+        self.pid = pid
+
+
+#  ___     _           _      _        ___
+# / __| __| |_  ___ __| |_  _| |___   / _ \ _  _ ___ _  _ ___
+# \__ \/ _| ' \/ -_) _` | || | / -_) | (_) | || / -_) || / -_)
+# |___/\__|_||_\___\__,_|\_,_|_\___|  \__\_\\_,_\___|\_,_\___|
+
+
+class ScheduleQueue(TWQueue):
+    pass
 
 
 #  ___ _           _         _   ___
