@@ -16,6 +16,7 @@ import pprint
 
 pp = pprint.PrettyPrinter(indent=2)
 
+
 #   ___             _            _
 #  / __|___ _ _  __| |_ __ _ _ _| |_ ___
 # | (__/ _ \ ' \(_-<  _/ _` | ' \  _(_-<
@@ -129,14 +130,15 @@ class Timestamped(ComparableMixin):
 
 
 class EventMessage(Timestamped):
-    """The vt field is an innovation over classical time warp. It is merely a
-    convenient to make the common case easy. Positive messages have
-    vt=receivetime by default, negative have vt=sendtime. That makes easy the
-    common case of inserting positive messages into input queues and negative
-    messages into output queues. When a negative message is inserted into an
-    input queue, its vt must be switched to the receive time. Likewise, when a
-    positive message is inserted into an output queue, its vt must be switched
-    to send time."""
+    """The vt field is new over classical time warp. It is a convenience to make
+    the common case easy. Positive messages have vt=receivetime by default,
+    negative have vt=sendtime. That makes easy the common case of inserting
+    positive messages into input queues and negative messages into output
+    queues. When a negative message is inserted into an input queue, its vt
+    must be switched to the receive time. Likewise, when a positive message is
+    inserted into an output queue, its vt must be switched to send time.
+
+    """
 
     def __init__(self,
                  sender: ProcessID, sendtime: VirtualTime,
@@ -203,39 +205,40 @@ class State(EventMessage):
 
 class TWQueue(object):
     """Implements timestamp-ordered, vt-cursored queue with annihilation.
-    TODO: optimize with priority queue or red-black tree."""
+    IN-PROGRESS: Transition to sorted dictionary. The internal dictionary is
+    called "elements" to prevent confusion with the dictionary primitive
+    "items()," which produces a sequence of tuples"""
 
     def __init__(self):
-        self.items = []
+        self.elements = {}
         self.vt = -sys.maxsize
         self.rollback = False
         self.annihilation = False
 
     def vts(self):
         """For debugging"""
-        return [i.vt for i in self.items]
+        return [e[0] for e in self.elements.items()]
 
-    def insert(self, item: Timestamped):
+    def insert(self, element: Timestamped):
         self.annihilation = False
         # ROLLBACK!
-        if item.vt <= self.vt:
+        if element.vt <= self.vt:
             self.rollback = True
-            self.vt = item.vt
-        i = -sys.maxsize
-        top = len(self.items)
-        for i in range(top):
-            if item.vt > self.items[i].vt:
-                break
-            if item.vt == self.items[i].vt:
-                for j in range(i, top):
-                    if (item == self.items[j] and
-                            hasattr(item, 'sign') and
-                            item.sign == (not self.items[j].sign)):
-                        self.annihilation = True
-                        del self.items[j]
-                        return
-                i = j
-        self.items.insert(i, item)
+            self.vt = element.vt
+        if element.vt in self.elements:
+            for e in self.elements[element.vt]:
+                if (e == element and
+                        hasattr(element, 'sign') and
+                        hasattr(e, 'sign') and
+                        e.sign == (not element.sign)):
+                    self.annihilation = True
+                    self.elements[element.vt].remove(e)
+                    if self.elements[element.vt] == []:
+                        self.elements.pop(element.vt)
+            if not self.annihilation:
+                self.elements[element.vt].append(element)
+        else:
+            self.elements[element.vt] = [element]
 
 
 #  ___ _        _          ___
@@ -321,14 +324,6 @@ class ScheduleQueue(TWQueue):
 # | _ \_ _ ___  __ ___ ______ ___ _ _   / _ \ _  _ ___ _  _ ___
 # |  _/ '_/ _ \/ _/ -_|_-<_-</ _ \ '_| | (_) | || / -_) || / -_)
 # |_| |_| \___/\__\___/__/__/\___/_|    \__\_\\_,_\___|\_,_\___|
-
-
-class LogicalProcess(object):
-
-    def __init__(self):
-        pass
-
-    pass
 
 
 #  _____     _    _       ___          _

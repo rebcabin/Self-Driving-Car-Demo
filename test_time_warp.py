@@ -70,7 +70,8 @@ def test_twqueue():
     q = TWQueue()
     m = EventMessage("me", 100, "it", 150, True, {'dressing': 'caesar'})
     q.insert(m)
-    assert q.vts() == [150], f"insert into empty is OK"
+    debug_me = q.vts()
+    assert debug_me == [150], f"insert into empty is OK"
     mm = EventMessage("me", 100, "it", 150, False, {'dressing': 'caesar'})
     mm.vt = mm.receive_time
     q.insert(mm)
@@ -79,7 +80,8 @@ def test_twqueue():
     q.insert(m)
     assert q.vts() == [150], f"re-insert into empty is OK"
     q.insert(EventMessage("me", 100, "alice", 150, True, {'dressing': 'mayo'}))
-    assert q.vts() == [150, 150]
+    assert q.vts() == [150]
+    assert len(q.elements[150]) == 2
 
 
 
