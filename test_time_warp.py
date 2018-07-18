@@ -1,4 +1,5 @@
 from air_hockey import *
+import sortedcontainers
 import pytest
 
 
@@ -66,6 +67,9 @@ def test_twstate():
     assert state2 > state, f"state timestamp gt is OK."
 
 
+# TODO: hypothesis testing
+
+
 def test_twqueue():
     q = TWQueue()
     m = EventMessage("me", 100, "it", 150, True, {'dressing': 'caesar'})
@@ -93,6 +97,118 @@ def test_input_queue():
     q.insert(mm)
     assert q.vts() == [], f"annihilation happens."
     assert q.annihilation, f"annihilation flag is set."
+
+
+def test_bisections():
+    f = sortedcontainers.SortedDict({})
+    assert f == {}
+    assert f.bisect_left(150) == 0
+    assert f.bisect_right(150) == 0
+
+    f[100] = 'a'
+    assert f.bisect_left(150) == 1
+    assert f.bisect_right(150) == 1
+
+    assert f.bisect_left(90) == 0
+    assert f.bisect_right(90) == 0
+
+    f[150] = 'b'
+    f[200] = 'c'
+
+    assert f.bisect_left(100) == 0
+    assert f.bisect_right(100) == 1
+
+    assert f.bisect_left(150) == 1
+    assert f.bisect_right(150) == 2
+
+    assert f.bisect_left(90) == 0
+    assert f.bisect_right(90) == 0
+
+    t0 = len(f)
+    ks = f.keys()
+    ls = list(ks)
+    assert ls == [100, 150, 200]
+
+    # buncha stuff to inspect in debugger to suss out bisection routines.
+
+    t1 = f.bisect_left(90)
+    t2 = f.bisect_right(90)
+
+    t11 = f.bisect_left(100)
+    t12 = f.bisect_right(100)
+
+    t3 = f.bisect_left(120)
+    t4 = f.bisect_right(120)
+
+    t5 = f.bisect_left(150)
+    t6 = f.bisect_right(150)
+
+    t9 = f.bisect_left(180)
+    ta = f.bisect_right(180)
+
+    tb = f.bisect_left(200)
+    tc = f.bisect_right(200)
+
+    t7 = f.bisect_left(900)
+    t8 = f.peekitem(-1)
+    # t8 = f.bisect_right(900)
+
+    def em(rt: VirtualTime):
+        return EventMessage('me', -42, 'it', rt, True, {})
+
+    g = InputQueue()
+    t10 = g.earliest_later_time(90)
+    assert t10 == LATEST_VT
+    t11 = g.latest_earlier_time(90)
+    assert t11 == EARLIEST_VT
+
+    g.insert(em(100))
+
+    # Three cases: searched time is <, ==, > time of an element in the queue
+
+    t12 = g.earliest_later_time(90)
+    assert t12 == 100
+    t13 = g.latest_earlier_time(90)
+    assert t13 == EARLIEST_VT
+
+    t14 = g.earliest_later_time(100)
+    assert t14 == LATEST_VT
+    t15 = g.latest_earlier_time(100)
+    assert t15 == EARLIEST_VT
+
+    t16 = g.earliest_later_time(120)
+    assert t16 == LATEST_VT
+    t17 = g.latest_earlier_time(120)
+    assert t17 == 100
+
+    g.insert(em(150))
+
+    t18 = g.earliest_later_time(90)
+    assert t18 == 100
+    t19 = g.latest_earlier_time(90)
+    assert t19 == EARLIEST_VT
+
+    t1a = g.earliest_later_time(100)
+    assert t1a == 150
+    t1b = g.latest_earlier_time(100)
+    assert t1b == EARLIEST_VT
+
+    t1c = g.earliest_later_time(120)
+    assert t1c == 150
+    t1d = g.latest_earlier_time(120)
+    assert t1d == 100
+
+    t1e = g.earliest_later_time(150)
+    assert t1e == LATEST_VT
+    t1f = g.latest_earlier_time(150)
+    assert t1f == 100
+
+    t20 = g.earliest_later_time(180)
+    assert t20 == LATEST_VT
+    t21 = g.latest_earlier_time(180)
+    assert t21 == 150
+        
+    pass  # set debugger breakpoint here
 
 
 def test_output_queue():

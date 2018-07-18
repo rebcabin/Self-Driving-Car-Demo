@@ -235,8 +235,31 @@ class TWQueue(object):
         virtual time."""
         if self.elements == {}:
             return EARLIEST_VT
-        l = self.elements.bisect_left()
-        r = self.elements.bisect_right()
+        # produce index of latest element equal to or greater than vt:
+        l = self.elements.bisect_left(vt)
+        if l == 0:
+            return EARLIEST_VT
+        else:
+            # peekitem returns a key-value tuple; we want just the key:
+            return self.elements.peekitem(l - 1)[0]
+
+    def earliest_later_time(self, vt: VirtualTime):
+        """Produce the earliest key in the dictionary later than the given
+        virtual time."""
+        if self.elements == {}:
+            return LATEST_VT
+        # produce index of latest element equal to or greater than vt:
+        l = self.elements.bisect_left(vt)
+        length = len(self.elements)
+        if l == length:
+            return LATEST_VT
+        if self.elements.peekitem(l)[0] == vt:
+            if l < length - 1:
+                return self.elements.peekitem(l + 1)[0]
+            else:
+                return LATEST_VT
+        else:
+            return self.elements.peekitem(l)[0]
 
     def insert(self, element: Timestamped):
         self.annihilation = False
