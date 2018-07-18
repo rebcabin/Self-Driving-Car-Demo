@@ -84,7 +84,6 @@ def test_twqueue():
     assert len(q.elements[150]) == 2
 
 
-
 def test_input_queue():
     q = InputQueue()
     m = EventMessage("me", 100, "it", 150, True, {'dressing': 'caesar'})

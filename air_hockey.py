@@ -8,13 +8,16 @@ from pymunk.vec2d import Vec2d
 from pymunk.pygame_util import draw
 
 import time
+
 import numpy as np
 import numpy.random as rndm
+
 from typing import List, Tuple, Callable, Dict, Any
 
 import pprint
-
 pp = pprint.PrettyPrinter(indent=2)
+
+import sortedcontainers
 
 
 #   ___             _            _
@@ -36,6 +39,10 @@ TOP_LEFT = (PADDING, PADDING)
 BOTTOM_LEFT = (PADDING, SCREEN_HEIGHT - PADDING - 1)
 BOTTOM_RIGHT = (SCREEN_WIDTH - PADDING - 1, SCREEN_HEIGHT - PADDING - 1)
 TOP_RIGHT = Vec2d(SCREEN_WIDTH - PADDING - 1, PADDING)
+
+
+EARLIEST_VT = -sys.maxsize
+LATEST_VT = sys.maxsize
 
 
 # TODO: IDs might be best as uuids.
@@ -185,7 +192,7 @@ class State(EventMessage):
         super().__init__(sender=sender,
                          sendtime=sendtime,
                          receiver=sender,
-                         receivetime=sys.maxsize,
+                         receivetime=LATEST_VT,
                          sign=False,
                          body=body)
 
@@ -205,13 +212,17 @@ class State(EventMessage):
 
 class TWQueue(object):
     """Implements timestamp-ordered, vt-cursored queue with annihilation.
-    IN-PROGRESS: Transition to sorted dictionary. The internal dictionary is
-    called "elements" to prevent confusion with the dictionary primitive
-    "items()," which produces a sequence of tuples"""
+    Internally, a sorted dictionary of lists, each list containing a 'bundle'
+    of elements all with the same virtual time. The internal dictionary is
+    called 'elements' to prevent confusion with the dictionary primitive
+    'items(),' which produces a sequence of tuples."""
 
     def __init__(self):
-        self.elements = {}
-        self.vt = -sys.maxsize
+        # See http://www.grantjenks.com/docs/sortedcontainers/
+        # Efficient search, insertion, next.
+        # Keys are virtual times. Values are lists of Timestamped's.
+        self.elements = sortedcontainers.SortedDict()
+        self.vt = EARLIEST_VT
         self.rollback = False
         self.annihilation = False
 
@@ -219,11 +230,20 @@ class TWQueue(object):
         """For debugging"""
         return [e[0] for e in self.elements.items()]
 
+    def latest_earlier_time(self, vt: VirtualTime):
+        """Produce the latest key in the dictionary earlier than the given
+        virtual time."""
+        if self.elements == {}:
+            return EARLIEST_VT
+        l = self.elements.bisect_left()
+        r = self.elements.bisect_right()
+
     def insert(self, element: Timestamped):
         self.annihilation = False
-        # ROLLBACK!
         if element.vt <= self.vt:
             self.rollback = True
+            # Even if we have eventual annihilation, we need to roll back to
+            # this time or earlier:
             self.vt = element.vt
         if element.vt in self.elements:
             for e in self.elements[element.vt]:
@@ -233,6 +253,7 @@ class TWQueue(object):
                         e.sign == (not element.sign)):
                     self.annihilation = True
                     self.elements[element.vt].remove(e)
+                    # If there are no more timestamped's, kill the key.
                     if self.elements[element.vt] == []:
                         self.elements.pop(element.vt)
             if not self.annihilation:
@@ -295,7 +316,7 @@ class InputQueue(TWQueue):
 
 class LogicalProcess(Timestamped):
     def __init__(self, pid: ProcessID):
-        self.now = sys.maxsize
+        self.now = LATEST_VT
         super().__init__(self.now)
         self.iq = InputQueue()
         self.oq = OutputQueue()
