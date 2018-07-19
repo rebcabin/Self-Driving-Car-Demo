@@ -14,10 +14,10 @@ import numpy.random as rndm
 
 from typing import List, Tuple, Callable, Dict, Any
 
+import sortedcontainers
+
 import pprint
 pp = pprint.PrettyPrinter(indent=2)
-
-import sortedcontainers
 
 
 #   ___             _            _
@@ -138,14 +138,12 @@ class Timestamped(ComparableMixin):
 
 class EventMessage(Timestamped):
     """The vt field is new over classical time warp. It is a convenience to make
-    the common case easy. Positive messages have vt=receivetime by default,
-    negative have vt=sendtime. That makes easy the common case of inserting
+    the common case easy. Positive messages have vt=receive_time by default;
+    negative have vt=send_time. That makes easy the common case of inserting
     positive messages into input queues and negative messages into output
     queues. When a negative message is inserted into an input queue, its vt
-    must be switched to the receive time. Likewise, when a positive message is
-    inserted into an output queue, its vt must be switched to send time.
-
-    """
+    must be switched to receive time. Likewise, when a positive message is
+    inserted into an output queue, its vt must be switched to send time."""
 
     def __init__(self,
                  sender: ProcessID, sendtime: VirtualTime,
@@ -204,6 +202,10 @@ class State(EventMessage):
 #                     |__/                         |___/
 
 
+class QueryMessage:
+    """TODO"""
+
+
 #  _______      _____
 # |_   _\ \    / / _ \ _  _ ___ _  _ ___
 #   | |  \ \/\/ / (_) | || / -_) || / -_)
@@ -212,9 +214,9 @@ class State(EventMessage):
 
 class TWQueue(object):
     """Implements timestamp-ordered, vt-cursored queue with annihilation.
-    Internally, a sorted dictionary of lists, each list containing a 'bundle'
+    Internally, a sorted dictionary of lists, each list being a 'bundle'
     of elements all with the same virtual time. The internal dictionary is
-    called 'elements' to prevent confusion with the dictionary primitive
+    called 'elements' to prevent confusion with the Python dictionary primitive
     'items(),' which produces a sequence of tuples."""
 
     def __init__(self):
@@ -261,28 +263,38 @@ class TWQueue(object):
         else:
             return self.elements.peekitem(l)[0]
 
-    def insert(self, element: Timestamped):
+    def insert(self, m: Timestamped):
         self.annihilation = False
-        if element.vt <= self.vt:
+        if m.vt <= self.vt:
             self.rollback = True
-            # Even if we have eventual annihilation, we need to roll back to
-            # this time or earlier:
-            self.vt = element.vt
-        if element.vt in self.elements:
-            for e in self.elements[element.vt]:
-                if (e == element and
-                        hasattr(element, 'sign') and
+            # Even if there is eventual annihilation, we need to roll
+            # back to this time or earlier:
+            self.vt = m.vt
+        if m.vt in self.elements:
+            for e in self.elements[m.vt]:
+                if (e == m and
+                        hasattr(m, 'sign') and
                         hasattr(e, 'sign') and
-                        e.sign == (not element.sign)):
+                        e.sign == (not m.sign)):
                     self.annihilation = True
-                    self.elements[element.vt].remove(e)
-                    # If there are no more timestamped's, kill the key.
-                    if self.elements[element.vt] == []:
-                        self.elements.pop(element.vt)
+                    self.elements[m.vt].remove(e)
+                    # If there are no more timestamped's, kill the key and
+                    # move the rollback time
+                    if self.elements[m.vt] == []:
+                        self.elements.pop(m.vt)
+                        if self.rollback:
+                            self.vt = self.latest_earlier_time(m.vt)
             if not self.annihilation:
-                self.elements[element.vt].append(element)
+                self.elements[m.vt].append(m)
         else:
-            self.elements[element.vt] = [element]
+            self.elements[m.vt] = [m]
+
+    def remove(self, vt: VirtualTime):
+        """Let this raise the natural KeyError if the vt is not in the queue."""
+        return self.elements.pop(vt)
+
+    def remove_earliest(self):
+        return self.elements.popitem(0)
 
 
 #  ___ _        _          ___
@@ -330,6 +342,40 @@ class InputQueue(TWQueue):
         super().insert(message)
 
 
+#  ___     _           _      _        ___
+# / __| __| |_  ___ __| |_  _| |___   / _ \ _  _ ___ _  _ ___
+# \__ \/ _| ' \/ -_) _` | || | / -_) | (_) | || / -_) || / -_)
+# |___/\__|_||_\___\__,_|\_,_|_\___|  \__\_\\_,_\___|\_,_\___|
+
+
+class ScheduleQueue(TWQueue):
+    def __init__(self):
+        super().__init__()
+
+    def run(self):
+        """Pop he first (earliest) lp in the queue (if there is one). Run it
+        until it terminates or until it's interrupted by arrival of a new
+        message to the processor. If the new message causes some other LP to
+        become earliest, suspend this one for later resumption.
+
+        In a real OS, we would suspend the process's machine state and restore
+        that later in real time when the process becomes earliest in virtual
+        time again. Here, where we don't have easy access to machine state of a
+        process, we'll just restart it."""
+
+        # Local Virtual Time is called 'lvt' in most time-warp papers. This
+        # should not be a mysterious or confusing acronym.
+        earliest_item = self.elements.peekitem(0)
+        lp = earliest_item[1]
+        lvt = earliest_item[0]
+
+        input_bundle = lp.iq[lvt]  # Let iq throw if no input messages!
+        state = lp.sq.get(lvt, {})
+        state_prime = lp.event_main(lvt, state, input_bundle)
+        
+        pass
+
+
 #  _              _         _   ___
 # | |   ___  __ _(_)__ __ _| | | _ \_ _ ___  __ ___ ______
 # | |__/ _ \/ _` | / _/ _` | | |  _/ '_/ _ \/ _/ -_|_-<_-<
@@ -338,24 +384,35 @@ class InputQueue(TWQueue):
 
 
 class LogicalProcess(Timestamped):
-    def __init__(self, pid: ProcessID):
+    def __init__(self,
+                 me: ProcessID,
+                 event_main:
+                     Callable[
+                         [VirtualTime, State, List[EventMessage]],
+                        State],
+                 query_main:
+                     Callable[
+                         [VirtualTime, State, List[QueryMessage]],
+                         State] = None):
         self.now = LATEST_VT
         super().__init__(self.now)
         self.iq = InputQueue()
         self.oq = OutputQueue()
         self.sq = StateQueue()
-        self.pid = pid
+        self.me = me
+        self.event = event_main
+        self.query = query_main
 
+    def send(self,
+             other: ProcessID,
+             receive_time: VirtualTime,
+             body: Body):
+        pass
 
-#  ___     _           _      _        ___
-# / __| __| |_  ___ __| |_  _| |___   / _ \ _  _ ___ _  _ ___
-# \__ \/ _| ' \/ -_) _` | || | / -_) | (_) | || / -_) || / -_)
-# |___/\__|_||_\___\__,_|\_,_|_\___|  \__\_\\_,_\___|\_,_\___|
-
-
-class ScheduleQueue(TWQueue):
-    pass
-
+    def query(self,
+              other: ProcessID,
+              body: Body):
+        pass
 
 #  ___ _           _         _   ___
 # | _ \ |_ _  _ __(_)__ __ _| | | _ \_ _ ___  __ ___ ______ ___ _ _
@@ -464,6 +521,7 @@ class Puck(object):
         # (x^2+y^2)-d1^2 + t (-2 x vx-2 y vy) + t^2 (vx^2 + vy^2)
         # \_____ ______/     \______ _______/       \_____ _____/
         #       v                   v                     v
+        #
         #       c                   b                     a
         #
         dv = self.velocity - them.velocity
@@ -475,6 +533,7 @@ class Puck(object):
         gonna_hit = False
         tau_impact_steps = np.inf
         if disc >= 0 and a != 0:
+            # Two real roots; pick the smallest, non-negative one.
             sdisc = np.sqrt(disc)
             tau1 = (-b + sdisc) / (2 * a)
             tau2 = (-b - sdisc) / (2 * a)
@@ -484,6 +543,8 @@ class Puck(object):
             else:
                 tau_impact_steps = max(tau1, tau2) / dt
                 gonna_hit = tau1 >= 0 or tau2 >= 0
+            # TODO: what does it mean if they're both negative? Is that even
+            # possible?
 
         return {'tau': tau_impact_steps,
                 'puck_victim': them,
