@@ -40,6 +40,12 @@ BOTTOM_LEFT = (PADDING, SCREEN_HEIGHT - PADDING - 1)
 BOTTOM_RIGHT = (SCREEN_WIDTH - PADDING - 1, SCREEN_HEIGHT - PADDING - 1)
 TOP_RIGHT = Vec2d(SCREEN_WIDTH - PADDING - 1, PADDING)
 
+# Counterclockwise for a correctly oriented polygon according to the Jordan
+# curve convention.
+SCREEN_TL = Vec2d(TOP_LEFT)
+SCREEN_BL = Vec2d(BOTTOM_LEFT)
+SCREEN_BR = Vec2d(BOTTOM_RIGHT)
+SCREEN_TR = Vec2d(TOP_RIGHT)
 
 EARLIEST_VT = -sys.maxsize
 LATEST_VT = sys.maxsize
@@ -386,14 +392,10 @@ class ScheduleQueue(TWQueue):
 class LogicalProcess(Timestamped):
     def __init__(self,
                  me: ProcessID,
-                 event_main:
-                     Callable[
-                         [VirtualTime, State, List[EventMessage]],
-                        State],
-                 query_main:
-                     Callable[
-                         [VirtualTime, State, List[QueryMessage]],
-                         State] = None):
+                 event_main: Callable[[VirtualTime, State, List[EventMessage]],
+                                      State],
+                 query_main: Callable[[VirtualTime, State, List[QueryMessage]],
+                                      State] = None):
         self.now = LATEST_VT
         super().__init__(self.now)
         self.iq = InputQueue()
@@ -417,12 +419,14 @@ class LogicalProcess(Timestamped):
 
 class WallLP(LogicalProcess):
     """"""
-    def __init__(self, wall):
+    def __init__(self, wall, me: ProcessID, event_main, query_main):
         self.wall = wall
 
 
 class PuckLP(LogicalProcess):
     """"""
+    def __init__(self, puck, me: ProcessID, event_main, query_main):
+        self.puck = puck
 
 
 #  ___ _           _         _   ___
@@ -462,7 +466,7 @@ class Wall(object):
         self.color = color
 
     def draw(self):
-        pass
+        draw_int_tuples([self.left, self.right], self.color)
 
 
 #  ___         _
@@ -490,6 +494,7 @@ class Puck(object):
         self.velocity = self._original_velocity
 
     def step(self, dt: float):
+        """not used yet"""
         self.center += dt * self.velocity
 
     def draw(self):
@@ -762,11 +767,8 @@ def draw_centered_arrow(loc, vel):
         dest=((0, 0)))  # ((loc - Vec2d(0, 150)).int_tuple))
 
 
-def screen_cage(pad=10):
-    return [Vec2d(pad, pad),
-            Vec2d(pad, SCREEN_HEIGHT - pad - 1),
-            Vec2d(SCREEN_WIDTH - pad - 1, SCREEN_HEIGHT - pad - 1),
-            Vec2d(SCREEN_WIDTH - pad - 1, pad)]
+def screen_cage():
+    return [SCREEN_TL, SCREEN_BL, SCREEN_BR, SCREEN_TR]
 
 
 def draw_cage():
@@ -785,24 +787,38 @@ def clear_screen(color=THECOLORS['black']):
 
 def demo_cage_time_warp(dt=1):
     """"""
-    wall_lps = pairwise_toroidal(
-        screen_cage(),
-        lambda v1, v2: WallLP(Wall(v1, v2))
-    )
+    def dummy_event_main(vt, state, msgs):
+        pass
+    def dummy_query_main(vt, state, msgs):
+        pass
+    # wall_lps = pairwise_toroidal(
+    #     screen_cage(),
+    #     lambda v1, v2: WallLP(Wall(v1, v2))
+    # )
+    wall_lps = [WallLP(Wall(SCREEN_TL, SCREEN_BL), "left wall",
+                       dummy_event_main, dummy_query_main),
+                WallLP(Wall(SCREEN_BL, SCREEN_BR), "bottom wall",
+                       dummy_event_main, dummy_query_main),
+                WallLP(Wall(SCREEN_BR, SCREEN_TR), "right wall",
+                       dummy_event_main, dummy_query_main),
+                WallLP(Wall(SCREEN_TR, SCREEN_TL), "top wall",
+                       dummy_event_main, dummy_query_main)]
+    [w.wall.draw() for w in wall_lps]
+    pygame.display.flip()
     small_puck_lp = PuckLP(Puck(
         center=Vec2d(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2),
         velocity=random_velocity(),
         mass=100,
         radius=42,
         color=THECOLORS['red']
-    ))
+    ), "small puck", dummy_event_main, dummy_query_main)
     big_puck_lp = PuckLP(Puck(
         center=Vec2d(SCREEN_WIDTH / 1.5, SCREEN_HEIGHT / 2.5),
         velocity=random_velocity(),
         mass=100,
         radius=79,
         color=THECOLORS['green']
-    ))
+    ), "big puck", dummy_event_main, dummy_query_main)
 
 
 def demo_cage(pause=0.75, dt=1):
@@ -1042,10 +1058,10 @@ def main():
     global g_screen
     set_up_screen()
     demo_cage_time_warp(dt=0.001)
-    # demo_hull(0.75)
-    # for _ in range(20):
-    #     demo_cage(pause=2, dt=0.001)
+    # for _ in range(1):
+    #     demo_cage(pause=20, dt=0.001)
     #     clear_screen()
+    # demo_hull(0.75)
     # demo_classic(steps=3000)
     # input('Press [Enter] to end the program.')
 
