@@ -152,17 +152,20 @@ class EventMessage(Timestamped):
     inserted into an output queue, its vt must be switched to send time."""
 
     def __init__(self,
-                 sender: ProcessID, sendtime: VirtualTime,
-                 receiver: ProcessID, receivetime: VirtualTime,
-                 sign: bool, body: Body):
-        if receivetime <= sendtime:
-            raise ValueError(f"receive time {receivetime} must be strictly "
-                             f"greater than send time {sendtime}")
-        super().__init__(vt=receivetime if sign else sendtime)
+                 sender: ProcessID,
+                 send_time: VirtualTime,
+                 receiver: ProcessID,
+                 receive_time: VirtualTime,
+                 sign: bool,
+                 body: Body):
+        if receive_time <= send_time:
+            raise ValueError(f"receive time {receive_time} must be strictly "
+                             f"greater than send time {send_time}")
+        super().__init__(vt=receive_time if sign else send_time)
         self.sender = sender
-        self.send_time = sendtime
+        self.send_time = send_time
         self.receiver = receiver
-        self.receive_time = receivetime
+        self.receive_time = receive_time
         self.sign = sign
         self.body = body
 
@@ -188,15 +191,17 @@ class EventMessage(Timestamped):
 
 class State(EventMessage):
     def __init__(self,
-                 sender: ProcessID, sendtime: VirtualTime,
+                 sender: ProcessID,
+                 send_time: VirtualTime,
                  body: Body):
-        """Modeled as a negative event message from self to self with indeterminate
-        (infinite) receive time. It's negative, so its timestamp is the
-        sendtime, just like an output negative message."""
+        """Modeled as a negative event message from self to self with
+        indeterminate (positive infinite) receive time. Its message sign
+        negative, so its timestamp is the send time, just like an output.
+        negative message."""
         super().__init__(sender=sender,
-                         sendtime=sendtime,
+                         send_time=send_time,
                          receiver=sender,
-                         receivetime=LATEST_VT,
+                         receive_time=LATEST_VT,
                          sign=False,
                          body=body)
 
@@ -405,6 +410,11 @@ class LogicalProcess(Timestamped):
         self.event = event_main
         self.query = query_main
 
+    def new_state(self, body: Body):
+        return State(sender=self.me,
+                     send_time=self.now,
+                     body=body)
+
     def send(self,
              other: ProcessID,
              receive_time: VirtualTime,
@@ -418,14 +428,55 @@ class LogicalProcess(Timestamped):
 
 
 class WallLP(LogicalProcess):
-    """"""
+
     def __init__(self, wall, me: ProcessID, event_main, query_main):
+        super().__init__(me, event_main, query_main)
         self.wall = wall
 
 
 class PuckLP(LogicalProcess):
-    """"""
-    def __init__(self, puck, me: ProcessID, event_main, query_main):
+
+    def event_main(self,
+                   vt: VirtualTime,
+                   state: State,
+                   msgs: List[EventMessage]):
+        self.vt = vt
+        self.puck.center = state.body['center']
+        self.puck.velocity = state.body['velocity']
+        # In general, the puck may move to table sectors with
+        # different walls, so the list of walls must be in the
+        # tw-state. Likewise, some collision schemes may vary
+        # dt, so we have it in the state.
+        walls = state.body['walls']
+        dt = state.body['dt']
+        for msg in msgs:
+            if msg.body['action'] == 'move':
+                pred = wall_prediction(self.puck, walls, dt)
+                state_prime = \
+                    self.new_state(
+                        Body({
+                            'center': self.puck.center + \
+                                      pred['tau'] * dt * self.puck.velocity,
+                            'velocity': \
+                                pred['v_t'] * pred['t'] \
+                                - pred['v_n'] * pred['n'],
+                            'walls': walls,
+                            'dt': dt
+                        }))
+                self.send(other=self.me,
+                          receive_time=self.me + pred['tau'],
+                          body=Body({'action': 'move'}))
+                return state_prime
+            else:
+                raise ValueError(f'unknown message '
+                                 f'{pp.pformat(msg)} '
+                                 f'for puck {pp.pformat(self.puck)}')
+
+    def __init__(self, puck,
+                 me: ProcessID,
+                 _ignore_input_event_main,
+                 query_main):
+        super().__init__(me, self.event_main, query_main)
         self.puck = puck
 
 
@@ -482,12 +533,15 @@ class Puck(object):
         self._original_center = center
         self._original_velocity = velocity
 
+        # instance variables: need them in the tw-state
         self.center = center
         self.velocity = velocity
-        self.mass = mass
-        self.radius = radius
-        self.color = color
-        self.dont_fill_bit = dont_fill_bit
+
+        # instance constants; don't need them in the tw-state
+        self.MASS = mass
+        self.RADIUS = radius
+        self.COLOR = color
+        self.DONT_FILL_BIT = dont_fill_bit
 
     def reset(self):
         self.center = self._original_center
@@ -499,10 +553,10 @@ class Puck(object):
 
     def draw(self):
         pygame.draw.circle(g_screen,
-                           self.color,
+                           self.COLOR,
                            self.center.int_tuple,
-                           self.radius,
-                           self.dont_fill_bit)
+                           self.RADIUS,
+                           self.DONT_FILL_BIT)
 
     def step_many(self, steps, dt: float):
         self.center += steps * dt * self.velocity
@@ -510,13 +564,18 @@ class Puck(object):
     def predict_a_wall_collision(self, wall: Wall, dt):
         p = self.center
         q, t = collinear_point_and_parameter(wall.left, wall.right, p)
-        drop_normal_direction = (q - p).normalized()
-        point_on_circle = p + self.radius * drop_normal_direction
+        contact_normal = (q - p).normalized()
+        normal_component_of_velocity = \
+            self.velocity.dot(contact_normal)
+        contact_tangent = Vec2d(contact_normal[1], -contact_normal[0])
+        tangential_component_of_velocity = \
+            self.velocity.dot(contact_tangent)
+        point_on_circle = p + self.RADIUS * contact_normal
         q_prime, t_prime = collinear_point_and_parameter(
             wall.left, wall.right, point_on_circle)
         # q_prime should be almost the same as q
         # TODO: np.testing.assert_allclose(...), meanwhile, inspect in debugger.
-        projected_speed = self.velocity.dot(drop_normal_direction)
+        projected_speed = self.velocity.dot(contact_normal)
         distance_to_wall = (q_prime - point_on_circle).length
         # predicted step time can be negative! it is permitted!
         predicted_step_time = distance_to_wall / projected_speed / dt \
@@ -525,7 +584,11 @@ class Puck(object):
                 'puck_strike_point': point_on_circle,
                 'wall_strike_point': q_prime,
                 'wall_strike_parameter': t_prime,
-                'wall_victim': wall}
+                'wall_victim': wall,
+                'n': contact_normal,
+                't': contact_tangent,
+                'v_n': normal_component_of_velocity,
+                'v_t': tangential_component_of_velocity}
 
     def predict_a_puck_collision(self, them: 'Puck', dt):
         """See https://goo.gl/jQik91 for forward-references as strings."""
@@ -543,7 +606,7 @@ class Puck(object):
         dv = self.velocity - them.velocity
         a = dv.get_length_sqrd()
         b = -2 * dp.dot(dv)
-        d1 = self.radius + them.radius
+        d1 = self.RADIUS + them.RADIUS
         c = dp.get_length_sqrd() - (d1 * d1)
         disc = (b * b) - (4 * a * c)
         gonna_hit = False
@@ -686,17 +749,6 @@ def pairwise_toroidal(ls, fn):
     return pairwise(ls + [ls[0]], fn)
 
 
-def arg_min(things, criterion):
-    so_far = np.inf
-    the_one = None
-    for thing in things:
-        c = criterion(thing)
-        if c < so_far:
-            the_one = thing
-            so_far = c
-    return the_one
-
-
 #  ___             _         _
 # | _ \___ _ _  __| |___ _ _(_)_ _  __ _
 # |   / -_) ' \/ _` / -_) '_| | ' \/ _` |
@@ -787,38 +839,43 @@ def clear_screen(color=THECOLORS['black']):
 
 def demo_cage_time_warp(dt=1):
     """"""
-    def dummy_event_main(vt, state, msgs):
+    def default_event_main(vt, state, msgs):
         pass
-    def dummy_query_main(vt, state, msgs):
+
+    def ddefault_query_main(vt, state, msgs):
         pass
-    # wall_lps = pairwise_toroidal(
-    #     screen_cage(),
-    #     lambda v1, v2: WallLP(Wall(v1, v2))
-    # )
+
     wall_lps = [WallLP(Wall(SCREEN_TL, SCREEN_BL), "left wall",
-                       dummy_event_main, dummy_query_main),
+                       default_event_main, ddefault_query_main),
                 WallLP(Wall(SCREEN_BL, SCREEN_BR), "bottom wall",
-                       dummy_event_main, dummy_query_main),
+                       default_event_main, ddefault_query_main),
                 WallLP(Wall(SCREEN_BR, SCREEN_TR), "right wall",
-                       dummy_event_main, dummy_query_main),
+                       default_event_main, ddefault_query_main),
                 WallLP(Wall(SCREEN_TR, SCREEN_TL), "top wall",
-                       dummy_event_main, dummy_query_main)]
+                       default_event_main, ddefault_query_main)]
+
     [w.wall.draw() for w in wall_lps]
-    pygame.display.flip()
+
+    small_puck_velocity = Vec2d(2.3, -1.7)
     small_puck_lp = PuckLP(Puck(
         center=Vec2d(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2),
-        velocity=random_velocity(),
+        velocity=small_puck_velocity,
         mass=100,
         radius=42,
         color=THECOLORS['red']
-    ), "small puck", dummy_event_main, dummy_query_main)
+    ), "small puck", default_event_main, ddefault_query_main)
+    small_puck_lp.puck.draw()
+    draw_centered_arrow(small_puck_lp.puck.center,
+                        small_puck_lp.puck.velocity)
+
     big_puck_lp = PuckLP(Puck(
         center=Vec2d(SCREEN_WIDTH / 1.5, SCREEN_HEIGHT / 2.5),
         velocity=random_velocity(),
         mass=100,
         radius=79,
         color=THECOLORS['green']
-    ), "big puck", dummy_event_main, dummy_query_main)
+    ), "big puck", default_event_main, ddefault_query_main)
+    pygame.display.flip()
 
 
 def demo_cage(pause=0.75, dt=1):
@@ -850,9 +907,9 @@ def demo_cage(pause=0.75, dt=1):
     #            'my_puck_prediction': my_puck_prediction,
     #            'their_puck_prediction': their_puck_prediction})
 
-    nearest_wall_strike = arg_min([my_wall_prediction,
-                                   their_wall_prediction],
-                                  lambda p: p['tau'])
+    nearest_wall_strike = min([my_wall_prediction,
+                               their_wall_prediction],
+                              key=lambda p: p['tau'])
 
     # TODO: can't handle a double wall strike
 
@@ -866,8 +923,8 @@ def demo_cage(pause=0.75, dt=1):
 
         perp = SCREEN_WIDTH * Vec2d(n[1], -n[0])
 
-        strike = me.center + me.radius * n
-        sanity = them.center - them.radius * n
+        strike = me.center + me.RADIUS * n
+        sanity = them.center - them.RADIUS * n
 
         draw_vector(strike, sanity, THECOLORS['goldenrod1'])
 
@@ -900,9 +957,9 @@ def step_and_draw_both(dt, me, tau, them):
 def wall_prediction(puck, walls, dt):
     predictions = \
         [puck.predict_a_wall_collision(wall, dt) for wall in walls]
-    prediction = arg_min(
+    prediction = min(
         predictions,
-        lambda p: p['tau'] if p['tau'] >= 0 else np.inf)
+        key = lambda p: p['tau'] if p['tau'] >= 0 else np.inf)
     return prediction
 
 
@@ -1058,9 +1115,11 @@ def main():
     global g_screen
     set_up_screen()
     demo_cage_time_warp(dt=0.001)
-    # for _ in range(1):
-    #     demo_cage(pause=20, dt=0.001)
-    #     clear_screen()
+    time.sleep(0.75)
+    clear_screen()
+    for _ in range(3):
+        demo_cage(pause=0.75, dt=0.001)
+        clear_screen()
     # demo_hull(0.75)
     # demo_classic(steps=3000)
     # input('Press [Enter] to end the program.')

@@ -13,17 +13,17 @@ def test_event_message():
     assert msg is not None, f"shorthand form is OK."
 
     msg = EventMessage(sender="me",
-                       sendtime=VirtualTime(0),
+                       send_time=VirtualTime(0),
                        receiver="it",
-                       receivetime=VirtualTime(1),
+                       receive_time=VirtualTime(1),
                        sign=True,
                        body={})
     assert msg is not None, f"mixed shorthand is OK."
 
     msg2 = EventMessage(sender="me",
-                        sendtime=VirtualTime(0),
+                        send_time=VirtualTime(0),
                         receiver="it",
-                        receivetime=VirtualTime(1),
+                        receive_time=VirtualTime(1),
                         sign=False,
                         body={})
     assert msg2 is not None
@@ -31,9 +31,9 @@ def test_event_message():
     assert msg == msg2, f"message equality doesn't depend on sign."
 
     msg3 = EventMessage(sender=ProcessID("me"),
-                        sendtime=VirtualTime(100),
+                        send_time=VirtualTime(100),
                         receiver=ProcessID("it"),
-                        receivetime=VirtualTime(150),
+                        receive_time=VirtualTime(150),
                         sign=False,
                         body=Body({}))
     assert msg3 is not None, f"fullform is OK"
@@ -42,9 +42,9 @@ def test_event_message():
     assert msg3 >= msg2, f"virtual-time non-strict comparison is OK."
 
     msg4 = EventMessage(sender=ProcessID("me"),
-                        sendtime=VirtualTime(100),
+                        send_time=VirtualTime(100),
                         receiver=ProcessID("it"),
-                        receivetime=VirtualTime(150),
+                        receive_time=VirtualTime(150),
                         sign=False,
                         body=Body({'worcestershire': 'sauce'}))
 
@@ -54,12 +54,12 @@ def test_event_message():
 
 def test_twstate():
     state = State(sender=ProcessID("me"),
-                  sendtime=VirtualTime(100),
+                  send_time=VirtualTime(100),
                   body=Body({'a': 1, 'sauce': 'steak'}))
     assert state is not None
 
     state2 = State(sender=ProcessID("me"),
-                   sendtime=VirtualTime(180),
+                   send_time=VirtualTime(180),
                    body=Body({'heinz': 57}))
 
     assert not state2 < state, f"state timestamp lt comparison is OK."
