@@ -372,7 +372,7 @@ class ScheduleQueue(TWQueue):
         input_bundle = lp.iq[lvt]  # Let iq throw if no input messages!
         state = lp.sq.get(lvt, {})
         state_prime = lp.event_main(lvt, state, input_bundle)
-        
+
         pass
 
 
@@ -413,6 +413,17 @@ class LogicalProcess(Timestamped):
               other: ProcessID,
               body: Body):
         pass
+
+
+class WallLP(LogicalProcess):
+    """"""
+    def __init__(self, wall):
+        self.wall = wall
+
+
+class PuckLP(LogicalProcess):
+    """"""
+
 
 #  ___ _           _         _   ___
 # | _ \ |_ _  _ __(_)__ __ _| | | _ \_ _ ___  __ ___ ______ ___ _ _
@@ -772,6 +783,28 @@ def clear_screen(color=THECOLORS['black']):
 # |___/\___|_|_|_\___/__/
 
 
+def demo_cage_time_warp(dt=1):
+    """"""
+    wall_lps = pairwise_toroidal(
+        screen_cage(),
+        lambda v1, v2: WallLP(Wall(v1, v2))
+    )
+    small_puck_lp = PuckLP(Puck(
+        center=Vec2d(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2),
+        velocity=random_velocity(),
+        mass=100,
+        radius=42,
+        color=THECOLORS['red']
+    ))
+    big_puck_lp = PuckLP(Puck(
+        center=Vec2d(SCREEN_WIDTH / 1.5, SCREEN_HEIGHT / 2.5),
+        velocity=random_velocity(),
+        mass=100,
+        radius=79,
+        color=THECOLORS['green']
+    ))
+
+
 def demo_cage(pause=0.75, dt=1):
     me, them = mk_us()
     draw_us_with_arrows(me, them)
@@ -1008,10 +1041,11 @@ def demo_classic(steps=500):
 def main():
     global g_screen
     set_up_screen()
+    demo_cage_time_warp(dt=0.001)
     # demo_hull(0.75)
-    for _ in range(20):
-        demo_cage(pause=2, dt=0.001)
-        clear_screen()
+    # for _ in range(20):
+    #     demo_cage(pause=2, dt=0.001)
+    #     clear_screen()
     # demo_classic(steps=3000)
     # input('Press [Enter] to end the program.')
 
