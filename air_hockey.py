@@ -235,7 +235,7 @@ class TWQueue(object):
         # Efficient search, insertion, next.
         # Keys are virtual times. Values are lists of Timestamped's.
         self.elements = sortedcontainers.SortedDict()
-        self.vt = EARLIEST_VT
+        self.vt = LATEST_VT
         self.rollback = False
         self.annihilation = False
 
@@ -346,6 +346,7 @@ class OutputQueue(TWQueue):
 class InputQueue(TWQueue):
     def __init__(self):
         super().__init__()
+        self.vt = LATEST_VT
 
     def insert(self, message: EventMessage):
         if not message.sign:
@@ -425,6 +426,7 @@ class LogicalProcess(Timestamped):
              receive_time: VirtualTime,
              body: Body,
              force_send_time = None):  # for boot only
+        # TODO: This stuff belongs in the Schedule Queue.
         global sched_q
         other_lp = sched_q.world_map[other]
         msg, antimsg = self._message_pair(
@@ -438,7 +440,7 @@ class LogicalProcess(Timestamped):
         other_lp.iq.insert(msg)
         if other_lp.iq.rollback:
             new_lp_vt = other_lp.iq.vt
-            lp_bundle = sched_q.pop[self.now]
+            lp_bundle = sched_q.elements.pop(self.now)
             # find self in the bundle
             for i in range(len(lp_bundle)):
                 if self is lp_bundle[i]:
@@ -889,10 +891,12 @@ def clear_screen(color=THECOLORS['black']):
 
 def demo_cage_time_warp(dt=1):
     """"""
-    def default_event_main(vt, state, msgs):
+    def default_event_main(
+            vt: VirtualTime, state: State, msgs: List[EventMessage]):
         pass
 
-    def default_query_main(vt, state, msgs):
+    def default_query_main(
+            vt: VirtualTime, state: State, msgs: List[EventMessage]):
         pass
 
     wall_lps = [WallLP(Wall(SCREEN_TL, SCREEN_BL), "left wall",
@@ -941,15 +945,14 @@ def demo_cage_time_warp(dt=1):
     # boot the simulation:
     small_puck_lp.send(
         other=ProcessID('small puck'),
-        force_send_time=EARLIEST_VT,
         receive_time=VirtualTime(0),
         body=Body({
             'center': small_puck_lp.puck.center,
             'velocity': small_puck_lp.puck.velocity,
             'walls': wall_lps,
             'dt': dt
-        })
-    )
+        }),
+        force_send_time=EARLIEST_VT)
 
     pygame.display.flip()
 
