@@ -300,6 +300,10 @@ class TWQueue(object):
         else:
             self.elements[m.vt] = [m]
 
+    def insert_bundle(self, ms: List[Timestamped]):
+        if ms:
+            self.elements[ms[0].vt] = ms
+
     def remove(self, vt: VirtualTime):
         """Let this raise the natural KeyError if the vt is not in the queue."""
         return self.elements.pop(vt)
@@ -426,7 +430,7 @@ class LogicalProcess(Timestamped):
              receive_time: VirtualTime,
              body: Body,
              force_send_time = None):  # for boot only
-        # TODO: This stuff belongs in the Schedule Queue.
+        # TODO: The rest of this stuff belongs in the Schedule Queue.
         global sched_q
         other_lp = sched_q.world_map[other]
         msg, antimsg = self._message_pair(
@@ -448,10 +452,10 @@ class LogicalProcess(Timestamped):
                     post = lp_bundle[i + 1:]
                     me = lp_bundle[i]
                     residual = pre + post
-                    for r in residual:
-                        sched_q.insert(r)
+                    sched_q.insert_bundle(residual)
                     me.now = me.vt = new_lp_vt
                     sched_q.insert(me)
+                    break
 
     def _message_pair(self, other, force_send_time, receive_time, body):
         send_time = force_send_time or self.now
