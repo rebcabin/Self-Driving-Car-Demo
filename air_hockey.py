@@ -362,6 +362,11 @@ class InputQueue(TWQueue):
 class ScheduleQueue(TWQueue):
     def __init__(self):
         super().__init__()
+        self.world_map = {}
+
+    def insert(self, lp: 'LogicalProcess'):
+        self.world_map[lp.me] = lp
+        super().insert(lp)
 
     def run(self):
         """Pop he first (earliest) lp in the queue (if there is one). Run it
@@ -418,8 +423,53 @@ class LogicalProcess(Timestamped):
     def send(self,
              other: ProcessID,
              receive_time: VirtualTime,
-             body: Body):
-        pass
+             body: Body,
+             force_send_time = None):  # for boot only
+        global sched_q
+        other_lp = sched_q.world_map[other]
+        msg, antimsg = self._message_pair(
+            other, force_send_time, receive_time, body)
+        self.oq.insert(antimsg)
+        if self.oq.annihilation:
+            raise ValueError(
+                f'unexpected annihilation from antimessage '
+                f'{pp.pformat(antimsg)} at process '
+                f'{pp.pformat(self)}')
+        other_lp.iq.insert(msg)
+        if other_lp.iq.rollback:
+            new_lp_vt = other_lp.iq.vt
+            lp_bundle = sched_q.pop[self.now]
+            # find self in the bundle
+            for i in range(len(lp_bundle)):
+                if self is lp_bundle[i]:
+                    pre = lp_bundle[:i]
+                    post = lp_bundle[i + 1:]
+                    me = lp_bundle[i]
+                    residual = pre + post
+                    for r in residual:
+                        sched_q.insert(r)
+                    me.now = me.vt = new_lp_vt
+                    sched_q.insert(me)
+
+    def _message_pair(self, other, force_send_time, receive_time, body):
+        send_time = force_send_time or self.now
+        message = EventMessage(
+            sender=self.me,
+            send_time=send_time,
+            receiver=other,
+            receive_time=receive_time,
+            sign=True,
+            body=body
+        )
+        antimessage = EventMessage(
+            sender=self.me,
+            send_time=send_time,
+            receiver=other,
+            receive_time=receive_time,
+            sign=False,
+            body=body
+        )
+        return message, antimessage
 
     def query(self,
               other: ProcessID,
@@ -455,10 +505,11 @@ class PuckLP(LogicalProcess):
                 state_prime = \
                     self.new_state(
                         Body({
-                            'center': self.puck.center + \
-                                      pred['tau'] * dt * self.puck.velocity,
+                            'center': self.puck.center \
+                                      + pred['tau'] * dt * self.puck.velocity,
+                            # elastic, frictionless collision
                             'velocity': \
-                                pred['v_t'] * pred['t'] \
+                                + pred['v_t'] * pred['t'] \
                                 - pred['v_n'] * pred['n'],
                             'walls': walls,
                             'dt': dt
@@ -468,13 +519,12 @@ class PuckLP(LogicalProcess):
                           body=Body({'action': 'move'}))
                 return state_prime
             else:
-                raise ValueError(f'unknown message '
+                raise ValueError(f'unknown message body '
                                  f'{pp.pformat(msg)} '
                                  f'for puck {pp.pformat(self.puck)}')
 
     def __init__(self, puck,
                  me: ProcessID,
-                 _ignore_input_event_main,
                  query_main):
         super().__init__(me, self.event_main, query_main)
         self.puck = puck
@@ -842,39 +892,65 @@ def demo_cage_time_warp(dt=1):
     def default_event_main(vt, state, msgs):
         pass
 
-    def ddefault_query_main(vt, state, msgs):
+    def default_query_main(vt, state, msgs):
         pass
 
     wall_lps = [WallLP(Wall(SCREEN_TL, SCREEN_BL), "left wall",
-                       default_event_main, ddefault_query_main),
+                       default_event_main, default_query_main),
                 WallLP(Wall(SCREEN_BL, SCREEN_BR), "bottom wall",
-                       default_event_main, ddefault_query_main),
+                       default_event_main, default_query_main),
                 WallLP(Wall(SCREEN_BR, SCREEN_TR), "right wall",
-                       default_event_main, ddefault_query_main),
+                       default_event_main, default_query_main),
                 WallLP(Wall(SCREEN_TR, SCREEN_TL), "top wall",
-                       default_event_main, ddefault_query_main)]
+                       default_event_main, default_query_main)]
 
     [w.wall.draw() for w in wall_lps]
 
     small_puck_velocity = Vec2d(2.3, -1.7)
-    small_puck_lp = PuckLP(Puck(
-        center=Vec2d(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2),
-        velocity=small_puck_velocity,
-        mass=100,
-        radius=42,
-        color=THECOLORS['red']
-    ), "small puck", default_event_main, ddefault_query_main)
+    small_puck_lp = PuckLP(
+        puck=Puck(
+            center=Vec2d(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2),
+            velocity=small_puck_velocity,
+            mass=100,
+            radius=42,
+            color=THECOLORS['red']),
+        me=ProcessID("small puck"),
+        query_main=default_query_main)
     small_puck_lp.puck.draw()
     draw_centered_arrow(small_puck_lp.puck.center,
                         small_puck_lp.puck.velocity)
 
-    big_puck_lp = PuckLP(Puck(
-        center=Vec2d(SCREEN_WIDTH / 1.5, SCREEN_HEIGHT / 2.5),
-        velocity=random_velocity(),
-        mass=100,
-        radius=79,
-        color=THECOLORS['green']
-    ), "big puck", default_event_main, ddefault_query_main)
+    big_puck_lp = PuckLP(
+        puck=Puck(
+            center=Vec2d(SCREEN_WIDTH / 1.5, SCREEN_HEIGHT / 2.5),
+            velocity=Vec2d(-1.95, -0.20),
+            mass=100,
+            radius=79,
+            color=THECOLORS['green']),
+        me=ProcessID("big puck"),
+        query_main=default_query_main)
+
+    # boot the OS
+    global sched_q
+    sched_q = ScheduleQueue()
+    for wall in wall_lps:
+        sched_q.insert(wall)
+    sched_q.insert(small_puck_lp)
+    sched_q.insert(big_puck_lp)
+
+    # boot the simulation:
+    small_puck_lp.send(
+        other=ProcessID('small puck'),
+        force_send_time=EARLIEST_VT,
+        receive_time=VirtualTime(0),
+        body=Body({
+            'center': small_puck_lp.puck.center,
+            'velocity': small_puck_lp.puck.velocity,
+            'walls': wall_lps,
+            'dt': dt
+        })
+    )
+
     pygame.display.flip()
 
 
